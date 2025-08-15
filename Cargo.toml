@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "rtxlauncher-core",
+    "rtxlauncher-ui-egui",
+]
+resolver = "2"
+
+
