@@ -52,6 +52,10 @@ pub fn render_mount_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui) {
 		let mut rm = st.mount_remix_mod.clone();
 		ui.horizontal(|ui| { ui.label("Remix mod folder:"); ui.text_edit_singleline(&mut rm); });
 		st.mount_remix_mod = rm;
+		// Mounted status
+		let mounted = rtxlauncher_core::is_game_mounted(&st.mount_game_folder, "Half-Life 2 RTX", &st.mount_remix_mod);
+		let status_col = if mounted { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,0,0) };
+		ui.colored_label(status_col, if mounted { "Mounted" } else { "Not mounted" });
 		if ui.button("Mount").clicked() {
 			let gf = st.mount_game_folder.clone();
 			let rm = st.mount_remix_mod.clone();
@@ -81,6 +85,11 @@ pub fn render_mount_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui) {
 		}
 	});
 	ui.separator();
+	ui.horizontal(|ui| {
+		ui.label("Logs:");
+		if ui.small_button("Copy").clicked() { ui.output_mut(|o| o.copied_text = st.log.clone()); }
+		if ui.small_button("Clear").clicked() { st.log.clear(); }
+	});
 	let avail = ui.available_size();
 	let height = avail.y.max(200.0);
 	egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false,false]).max_height(height).show(ui, |ui| {

@@ -111,7 +111,12 @@ pub fn render_install_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui) 
 		}
 	});
 	ui.separator();
-	// Logs area
+	// Logs area with controls
+	ui.horizontal(|ui| {
+		ui.label("Logs:");
+		if ui.small_button("Copy").clicked() { ui.output_mut(|o| o.copied_text = st.log.clone()); }
+		if ui.small_button("Clear").clicked() { st.log.clear(); }
+	});
 	let avail = ui.available_size();
 	let height = avail.y.max(200.0);
 	egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false,false]).max_height(height).show(ui, |ui| {

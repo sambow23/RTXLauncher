@@ -17,6 +17,9 @@ pub struct GitHubRelease {
     pub tag_name: Option<String>,
     pub published_at: Option<String>,
     pub assets: Vec<GitHubAsset>,
+    // Optional extra fields for richer UI rendering
+    pub body: Option<String>,
+    pub prerelease: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]

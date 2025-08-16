@@ -48,6 +48,7 @@ pub struct LauncherApp {
 	pub settings: AppSettings,
 	pub selected: Tab,
 	pub is_running: bool,
+	pub show_error_modal: Option<String>,
 	pub toasts: Vec<Toast>,
 	pub remix_source_idx: usize,
 	pub remix_releases: Vec<GitHubRelease>,
@@ -64,6 +65,10 @@ pub struct LauncherApp {
 	pub show_update_dialog: bool,
 	pub update_folder_options: Vec<String>,
 	pub update_folder_selected: Vec<bool>,
+	// Update preview
+	pub update_preview_dirty: bool,
+	pub update_preview_count: usize,
+	pub update_preview_bytes: u64,
 	pub show_reapply_dialog: bool,
 	pub reapply_fixes: bool,
 	pub reapply_patches: bool,
@@ -92,6 +97,7 @@ impl Default for LauncherApp {
 			settings,
 			selected: Tab::Install,
 			is_running: false,
+			show_error_modal: None,
 			toasts: Vec::new(),
 			remix_source_idx: 0,
 			remix_releases: Vec::new(),
@@ -107,6 +113,9 @@ impl Default for LauncherApp {
 			show_update_dialog: false,
 			update_folder_options: Vec::new(),
 			update_folder_selected: Vec::new(),
+			update_preview_dirty: false,
+			update_preview_count: 0,
+			update_preview_bytes: 0,
 			show_reapply_dialog: false,
 			reapply_fixes: true,
 			reapply_patches: true,
@@ -161,7 +170,8 @@ impl App for LauncherApp {
 			ui.add_space(8.0);
 			let remaining = ui.available_size();
 			ui.allocate_ui_with_layout(remaining, egui::Layout::bottom_up(egui::Align::Center), |ui| {
-				if ui.add_enabled(!self.is_running, egui::Button::new("Launch Game")).clicked() {
+				let any_running = self.install.is_running || self.repositories.is_running || self.mount.is_running;
+				if ui.add_enabled(!any_running, egui::Button::new("Launch Game")).clicked() {
 					if let Ok(exec_dir) = std::env::current_exe().and_then(|p| p.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))) {
 						let root_exe = exec_dir.join("gmod.exe");
 						let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
@@ -170,16 +180,11 @@ impl App for LauncherApp {
 					}
 				}
 				ui.add_space(6.0);
-				if self.is_running {
-					if ui.button("Cancel").clicked() {
-						self.current_job = None;
-						self.is_running = false;
-						self.add_toast("Job cancelled", egui::Color32::YELLOW);
-					}
-					ui.add_space(6.0);
-					let pct = self.progress as f32 / 100.0;
+				// Show install progress if available
+				if self.install.is_running {
+					let pct = self.install.progress as f32 / 100.0;
 					let width = ui.available_width().min(220.0);
-					let bar = egui::ProgressBar::new(pct).text(format!("Progress: {}%", self.progress));
+					let bar = egui::ProgressBar::new(pct).text(format!("Install: {}%", self.install.progress));
 					ui.add_sized(egui::vec2(width, 18.0), bar);
 				}
 			});
@@ -196,6 +201,7 @@ impl App for LauncherApp {
 		});
 		self.render_update_dialog(ctx);
 		self.render_reapply_dialog(ctx);
+		self.render_error_modal(ctx);
 		self.draw_toasts(ctx);
 	}
 }
@@ -218,6 +224,7 @@ impl LauncherApp {
 				}
 			}
 		}
+		self.update_preview_dirty = true;
 	}
 
 	pub fn render_update_dialog(&mut self, ctx: &egui::Context) {
@@ -227,9 +234,12 @@ impl LauncherApp {
 			let mut any = false;
 			for (i, label) in self.update_folder_options.iter().enumerate() {
 				let mut sel = self.update_folder_selected[i];
-				if ui.checkbox(&mut sel, label).changed() { self.update_folder_selected[i] = sel; }
+				if ui.checkbox(&mut sel, label).changed() { self.update_folder_selected[i] = sel; self.update_preview_dirty = true; }
 				any |= sel;
 			}
+			ui.separator();
+			if self.update_preview_dirty { self.recompute_update_preview(); }
+			ui.label(format!("Will copy approximately {} item(s), {}", self.update_preview_count, humansize::format_size(self.update_preview_bytes, humansize::BINARY)));
 			ui.separator();
 			ui.horizontal(|ui| {
 				if ui.add_enabled(any && !self.is_running, egui::Button::new("Apply")).clicked() {
@@ -293,6 +303,44 @@ impl LauncherApp {
 			self.is_running = true;
 			let install_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
 			std::thread::spawn(move || { let rt = tokio::runtime::Runtime::new().unwrap(); rt.block_on(async move { let _ = rtxlauncher_core::apply_patches_from_repo(&owner, &repo, "applypatch.py", &install_dir, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await; }); });
+		}
+	}
+
+	fn render_error_modal(&mut self, ctx: &egui::Context) {
+		if let Some(msg) = self.show_error_modal.clone() {
+			egui::Window::new("Error").collapsible(false).resizable(true).show(ctx, |ui| {
+				ui.colored_label(egui::Color32::RED, &msg);
+				ui.horizontal(|ui| {
+					if ui.button("Copy details").clicked() { ui.output_mut(|o| o.copied_text = msg.clone()); self.add_toast("Copied error", egui::Color32::LIGHT_GREEN); }
+					if ui.button("Close").clicked() { self.show_error_modal = None; }
+				});
+			});
+		}
+	}
+
+	fn recompute_update_preview(&mut self) {
+		self.update_preview_dirty = false;
+		self.update_preview_count = 0;
+		self.update_preview_bytes = 0;
+		let vanilla = self.settings.manually_specified_install_path.clone().or_else(|| detect_gmod_install_folder().map(|p| p.display().to_string()));
+		let Some(v) = vanilla else { return; };
+		let src = std::path::PathBuf::from(v);
+		let dst = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+		let updates = rtxlauncher_core::detect_updates(&src, &dst).unwrap_or_default();
+		let include_root_execs = self.update_folder_selected.iter().enumerate().any(|(i, s)| *s && self.update_folder_options.get(i).map(|p| p == "bin").unwrap_or(false));
+		for u in updates.into_iter() {
+			let rp = u.relative_path.clone();
+			let mut include = false;
+			if !rp.contains('/') { include = include_root_execs && (rp.eq_ignore_ascii_case("gmod.exe") || rp.eq_ignore_ascii_case("hl2.exe") || rp.eq_ignore_ascii_case("steam_appid.txt")); }
+			for (i, l) in self.update_folder_options.iter().enumerate() {
+				if !self.update_folder_selected[i] { continue; }
+				let prefix = format!("{}/", l);
+				if rp.starts_with(&prefix) || rp == *l { include = true; break; }
+			}
+			if include {
+				self.update_preview_count += 1;
+				if !u.is_directory { if let Ok(meta) = std::fs::metadata(&u.source_path) { self.update_preview_bytes = self.update_preview_bytes.saturating_add(meta.len()); } }
+			}
 		}
 	}
 }

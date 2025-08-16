@@ -3146,6 +3146,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "humansize",
  "rfd",
  "rtxlauncher-core",
  "tokio",

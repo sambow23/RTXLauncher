@@ -24,6 +24,11 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
 			}
 		}
 	});
+    // Path validation hint
+    let path_ok = app.settings.manually_specified_install_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false)
+        || detect_gmod_install_folder().is_some();
+    let col = if path_ok { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,0,0) };
+    ui.colored_label(col, if path_ok { "GMod path OK" } else { "GMod path not found" });
 	ui.horizontal(|ui| {
 		ui.label("GitHub PAT (optional):");
 		let mut pat = rtxlauncher_core::load_personal_access_token().unwrap_or_default();
@@ -32,6 +37,10 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
 			let _ = rtxlauncher_core::set_personal_access_token(if pat.trim().is_empty() { None } else { Some(pat.clone()) });
 		}
 	});
+    // PAT validation hint
+    let pat_ok = rtxlauncher_core::load_personal_access_token().map(|s| !s.is_empty()).unwrap_or(false);
+    let col = if pat_ok { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,0,0) };
+    ui.colored_label(col, if pat_ok { "PAT saved" } else { "No PAT" });
 	ui.separator();
 	ui.label("Launch options");
 	// Resolution dropdown

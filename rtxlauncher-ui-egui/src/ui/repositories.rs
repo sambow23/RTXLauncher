@@ -104,6 +104,7 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 						if ui.selectable_label(st.remix_release_idx == i, text).clicked() { st.remix_release_idx = i; }
 					}
 				});
+				if st.remix_loading { ui.add(egui::Spinner::new()); }
 				if ui.add_enabled(!st.is_running && !st.remix_releases.is_empty(), egui::Button::new("Install/Update")).clicked() {
 					let rel = st.remix_releases[st.remix_release_idx].clone();
 					let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
@@ -118,6 +119,26 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 					});
 				}
 			});
+			// details panel
+			if let Some(rel) = st.remix_releases.get(st.remix_release_idx) {
+				ui.separator();
+				let name = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+				let prerelease = rel.prerelease.unwrap_or(false);
+				ui.horizontal(|ui| {
+					ui.label(format!("Selected: {}", name));
+					if prerelease { ui.colored_label(egui::Color32::YELLOW, "pre-release"); }
+					let installed = app.settings.installed_remix_version.clone().unwrap_or_default();
+					if !installed.is_empty() {
+						let up_to_date = installed == name;
+						let col = if up_to_date { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,140,0) };
+						ui.colored_label(col, if up_to_date { "Up to date" } else { "Update available" });
+						ui.label(format!("Installed: {}", installed));
+					}
+				});
+				if let Some(body) = &rel.body {
+					egui::ScrollArea::vertical().id_salt("remix-md").max_height(260.0).show(ui, |ui| { render_simple_markdown(ui, body); });
+				}
+			}
 		});
 	}
 
@@ -150,6 +171,7 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 						if ui.selectable_label(st.fixes_release_idx == i, text).clicked() { st.fixes_release_idx = i; }
 					}
 				});
+				if st.fixes_loading { ui.add(egui::Spinner::new()); }
 				if ui.add_enabled(!st.is_running && !st.fixes_releases.is_empty(), egui::Button::new("Install/Update")).clicked() {
 					let rel = st.fixes_releases[st.fixes_release_idx].clone();
 					let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
@@ -164,6 +186,24 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 					});
 				}
 			});
+			// details panel
+			if let Some(rel) = st.fixes_releases.get(st.fixes_release_idx) {
+				ui.separator();
+				let name = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+				ui.horizontal(|ui| {
+					ui.label(format!("Selected: {}", name));
+					let installed = app.settings.installed_fixes_version.clone().unwrap_or_default();
+					if !installed.is_empty() {
+						let up_to_date = installed == name;
+						let col = if up_to_date { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,140,0) };
+						ui.colored_label(col, if up_to_date { "Up to date" } else { "Update available" });
+						ui.label(format!("Installed: {}", installed));
+					}
+				});
+				if let Some(body) = &rel.body {
+					egui::ScrollArea::vertical().id_salt("fixes-md").max_height(260.0).show(ui, |ui| { render_simple_markdown(ui, body); });
+				}
+			}
 		});
 	}
 
@@ -209,6 +249,11 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 	ui.separator();
 	{
 		let st = &mut app.repositories;
+		ui.horizontal(|ui| {
+			ui.label("Logs:");
+			if ui.small_button("Copy").clicked() { ui.output_mut(|o| o.copied_text = st.log.clone()); }
+			if ui.small_button("Clear").clicked() { st.log.clear(); }
+		});
 		let avail = ui.available_size();
 		let height = avail.y.max(200.0);
 		egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false,false]).max_height(height).show(ui, |ui| {
@@ -237,5 +282,97 @@ fn start_fetch_releases(remix: bool, st: &mut RepositoriesState) {
 		});
 	});
 }
+
+// Minimal markdown renderer (headings h1..h6, bullet lists, code blocks, simple links & inline code)
+fn render_simple_markdown(ui: &mut egui::Ui, text: &str) {
+	let mut in_code = false;
+	for raw_line in text.lines() {
+		let line = raw_line.trim_end();
+		if line.starts_with("```") { in_code = !in_code; continue; }
+		if in_code { ui.monospace(line); continue; }
+		// headings h6..h1 (render inline so links/bold work inside)
+		if let Some(rest) = line.strip_prefix("###### ") { render_inline_with_heading(ui, rest, true); continue; }
+		if let Some(rest) = line.strip_prefix("##### ") { render_inline_with_heading(ui, rest, true); continue; }
+		if let Some(rest) = line.strip_prefix("#### ") { render_inline_with_heading(ui, rest, true); continue; }
+		if let Some(rest) = line.strip_prefix("### ") { render_inline_with_heading(ui, rest, true); continue; }
+		if let Some(rest) = line.strip_prefix("## ") { render_inline_with_heading(ui, rest, true); continue; }
+		if let Some(rest) = line.strip_prefix("# ") { render_inline_with_heading(ui, rest, true); continue; }
+		// bullets
+		if let Some(rest) = line.strip_prefix("- ") { ui.horizontal_wrapped(|ui| { ui.label("•"); render_inline_with_heading(ui, rest, false); }); continue; }
+		if let Some(rest) = line.strip_prefix("* ") { ui.horizontal_wrapped(|ui| { ui.label("•"); render_inline_with_heading(ui, rest, false); }); continue; }
+		// plain
+		if line.is_empty() { ui.add_space(4.0); } else { render_inline_with_heading(ui, line, false); }
+	}
+}
+
+// inline renderer with optional heading styling: supports **bold**, `code`, and [label](url)
+fn render_inline_with_heading(ui: &mut egui::Ui, line: &str, heading: bool) {
+	#[derive(Debug)]
+	enum Seg { Text(String, bool), Code(String), Link { label: String, url: String, bold: bool } }
+	let mut segs: Vec<Seg> = Vec::new();
+	let mut bold = false;
+	let mut code = false;
+	let mut buf = String::new();
+	let mut i = 0usize;
+	let chars: Vec<char> = line.chars().collect();
+	while i < chars.len() {
+		// toggle bold on **
+		if !code && i + 1 < chars.len() && chars[i] == '*' && chars[i+1] == '*' {
+			if !buf.is_empty() { segs.push(Seg::Text(std::mem::take(&mut buf), bold)); }
+			bold = !bold; i += 2; continue;
+		}
+		// inline link [text](url)
+		if !code && chars[i] == '[' {
+			let rest: String = chars[i..].iter().collect();
+			if let Some(close_br) = rest.find(']') {
+				let after = &rest[close_br+1..];
+				if after.starts_with('(') {
+					if let Some(close_paren) = after[1..].find(')') {
+						if !buf.is_empty() { segs.push(Seg::Text(std::mem::take(&mut buf), bold)); }
+						let mut label = rest[1..close_br].trim().to_string();
+						if label.starts_with('`') && label.ends_with('`') && label.len() >= 2 { label = label[1..label.len()-1].to_string(); }
+						let url = &after[1..1+close_paren];
+						segs.push(Seg::Link { label, url: url.to_string(), bold });
+						// advance i by consumed chars
+						i += 1 + close_br + 1 + 1 + close_paren + 1;
+						continue;
+					}
+				}
+			}
+		}
+		// inline code with backticks
+		if chars[i] == '`' {
+			if code { segs.push(Seg::Code(std::mem::take(&mut buf))); code = false; }
+			else { if !buf.is_empty() { segs.push(Seg::Text(std::mem::take(&mut buf), bold)); } code = true; }
+			i += 1; continue;
+		}
+		// normal char
+		buf.push(chars[i]);
+		i += 1;
+	}
+	if !buf.is_empty() { if code { segs.push(Seg::Code(buf)); } else { segs.push(Seg::Text(buf, bold)); } }
+	ui.horizontal_wrapped(|ui| {
+		for seg in segs.into_iter() {
+			match seg {
+				Seg::Text(s, b) => {
+					let mut t = egui::RichText::new(s);
+					if b { t = t.strong(); }
+					if heading { t = t.heading(); }
+					ui.label(t);
+				}
+				Seg::Code(s) => { let mut t = egui::RichText::new(s).code(); if heading { t = t.heading(); } ui.label(t); }
+				Seg::Link { label, url, bold: b } => {
+					let mut text = egui::RichText::new(label);
+					if b { text = text.strong(); }
+					if heading { text = text.heading(); }
+					ui.add(egui::widgets::Hyperlink::from_label_and_url(text, url));
+				}
+			}
+		}
+	});
+}
+
+// Backwards-compat shim
+fn render_inline(ui: &mut egui::Ui, line: &str) { render_inline_with_heading(ui, line, false); }
 
 
