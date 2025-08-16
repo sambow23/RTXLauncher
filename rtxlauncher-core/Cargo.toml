@@ -41,6 +41,7 @@ junction = "1"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", default-features = false, features = ["user"] }
-steamlocate = "1"
+shellexpand = "3"
+which = "6"
 
 

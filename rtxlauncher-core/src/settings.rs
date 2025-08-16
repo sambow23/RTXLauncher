@@ -15,6 +15,13 @@ pub struct AppSettings {
     pub developer_mode: bool,
     pub tools_mode: bool,
     pub custom_launch_options: Option<String>,
+    // Linux-specific launch settings
+    pub linux_launch_via_steam: bool,
+    pub linux_proton_path: Option<String>,
+    pub linux_steam_root_override: Option<String>,
+    pub linux_use_dxvk_hdr: bool,
+    pub linux_enable_proton_log: bool,
+    pub linux_selected_proton_label: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -31,6 +38,12 @@ impl Default for AppSettings {
             developer_mode: false,
             tools_mode: false,
             custom_launch_options: None,
+            linux_launch_via_steam: false,
+            linux_proton_path: None,
+            linux_steam_root_override: None,
+            linux_use_dxvk_hdr: false,
+            linux_enable_proton_log: false,
+            linux_selected_proton_label: None,
         }
     }
 }

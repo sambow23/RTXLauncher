@@ -1,5 +1,7 @@
 use eframe::{egui, App};
 use rtxlauncher_core::{is_elevated, SettingsStore, JobProgress, AppSettings, detect_gmod_install_folder, InstallPlan, perform_basic_install, mount_game, unmount_game, fetch_releases, GitHubRateLimit, install_remix_from_release, install_fixes_from_release, apply_usda_fixes, detect_updates, apply_updates, launch_game, set_personal_access_token, load_personal_access_token, init_logging, GitHubRelease, apply_patches_from_repo};
+#[cfg(unix)]
+use rtxlauncher_core::launch::list_proton_builds;
 use std::sync::mpsc::Receiver;
 use rfd::FileDialog;
 #[cfg(windows)]
@@ -356,6 +358,41 @@ impl App for LauncherApp {
 						let mut custom = self.settings.custom_launch_options.clone().unwrap_or_default();
 						if ui.text_edit_singleline(&mut custom).changed() { self.settings.custom_launch_options = if custom.trim().is_empty() { None } else { Some(custom) }; let _ = self.settings_store.save(&self.settings); }
 					});
+
+					#[cfg(unix)]
+					{
+						ui.separator();
+						ui.label("Linux launch (Proton)");
+						if ui.checkbox(&mut self.settings.linux_launch_via_steam, "Launch via Steam (applaunch)").changed() { let _ = self.settings_store.save(&self.settings); }
+						if ui.checkbox(&mut self.settings.linux_use_dxvk_hdr, "Enable DXVK HDR").changed() { let _ = self.settings_store.save(&self.settings); }
+						if ui.checkbox(&mut self.settings.linux_enable_proton_log, "Enable PROTON_LOG").changed() { let _ = self.settings_store.save(&self.settings); }
+						ui.horizontal(|ui| {
+							ui.label("Proton build:");
+							let builds = list_proton_builds(&self.settings);
+							let labels: Vec<String> = builds.iter().map(|(label, _)| label.clone()).collect();
+							let selected_text = self.settings.linux_selected_proton_label.clone().unwrap_or_else(|| labels.first().cloned().unwrap_or_else(|| "(none found)".to_string()));
+							egui::ComboBox::from_id_source("linux-proton-build").selected_text(selected_text).show_ui(ui, |ui| {
+								for (label, path) in builds.iter() {
+									let is_sel = self.settings.linux_selected_proton_label.as_ref().map(|s| s == label).unwrap_or(false);
+									if ui.selectable_label(is_sel, label).clicked() {
+										self.settings.linux_selected_proton_label = Some(label.clone());
+										self.settings.linux_proton_path = Some(path.clone());
+										let _ = self.settings_store.save(&self.settings);
+									}
+								}
+							});
+						});
+						ui.horizontal(|ui| {
+							ui.label("Proton path:");
+							let mut v = self.settings.linux_proton_path.clone().unwrap_or_default();
+							if ui.text_edit_singleline(&mut v).changed() { self.settings.linux_proton_path = if v.trim().is_empty() { None } else { Some(v) }; let _ = self.settings_store.save(&self.settings); }
+						});
+						ui.horizontal(|ui| {
+							ui.label("Steam root override:");
+							let mut v = self.settings.linux_steam_root_override.clone().unwrap_or_default();
+							if ui.text_edit_singleline(&mut v).changed() { self.settings.linux_steam_root_override = if v.trim().is_empty() { None } else { Some(v) }; let _ = self.settings_store.save(&self.settings); }
+						});
+					}
 					#[cfg(windows)]
 					{
 						if !is_elevated() {

@@ -61,11 +61,163 @@ pub fn build_launch_args(settings: &AppSettings) -> Vec<String> {
     args
 }
 
+#[cfg(windows)]
 pub fn launch_game(exe_path: PathBuf, settings: &AppSettings) -> std::io::Result<()> {
     let args = build_launch_args(settings);
     let mut cmd = Command::new(&exe_path);
     cmd.args(args);
     if let Some(dir) = exe_path.parent() { cmd.current_dir(dir); }
+    let _ = cmd.spawn()?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn detect_linux_steam_root(settings: &AppSettings) -> Option<PathBuf> {
+    if let Some(override_path) = &settings.linux_steam_root_override {
+        let p = PathBuf::from(override_path);
+        if p.exists() { return Some(p); }
+    }
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.join(".local/share/Steam"));
+        roots.push(home.join(".steam/steam"));
+        roots.push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+    }
+    roots.push(PathBuf::from("/usr/lib/steam"));
+    roots.into_iter().find(|r| r.exists())
+}
+
+#[cfg(unix)]
+fn detect_linux_proton(settings: &AppSettings, steam_root: &PathBuf) -> Option<PathBuf> {
+    if let Some(user) = &settings.linux_proton_path { let p = PathBuf::from(user); if p.exists() { return Some(p); } }
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    // Official Proton installs
+    candidates.push(steam_root.join("steamapps/common/Proton - Experimental/proton"));
+    candidates.push(steam_root.join("steamapps/common/Proton - Hotfix/proton"));
+    // In case Steam uses a numbered Proton (e.g., Proton 9)
+    if let Ok(read) = std::fs::read_dir(steam_root.join("steamapps/common")) {
+        for entry in read.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("Proton ") {
+                let p = entry.path().join("proton");
+                if p.exists() { candidates.push(p); }
+            }
+        }
+    }
+    // Proton-GE in user compatibilitytools.d
+    let compat_dirs = [
+        steam_root.join("compatibilitytools.d"),
+        PathBuf::from("~/.local/share/Steam/compatibilitytools.d"),
+        PathBuf::from("~/.steam/root/compatibilitytools.d"),
+        PathBuf::from("~/.steam/steam/compatibilitytools.d"),
+        PathBuf::from("~/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"),
+    ];
+    for dir in compat_dirs.iter() {
+        let d = shellexpand::tilde(&dir.display().to_string()).to_string();
+        let d = PathBuf::from(d);
+        if d.is_dir() {
+            if let Ok(read) = std::fs::read_dir(&d) {
+                for entry in read.flatten() {
+                    let p = entry.path().join("proton");
+                    if p.exists() { candidates.push(p); }
+                }
+            }
+        }
+    }
+    // Last resort: try PATH for a `proton` executable
+    if let Ok(p) = which::which("proton") { candidates.push(p); }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+#[cfg(unix)]
+pub fn list_proton_builds(settings: &AppSettings) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    if let Some(root) = detect_linux_steam_root(settings) {
+        // Official common dir
+        let common = root.join("steamapps/common");
+        if let Ok(read) = std::fs::read_dir(&common) {
+            for entry in read.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("Proton ") || name.starts_with("Proton - ") {
+                    let p = entry.path().join("proton");
+                    if p.exists() {
+                        out.push((name.clone(), p.display().to_string()));
+                    }
+                }
+            }
+        }
+        // Proton-GE
+        let compat_dirs = [
+            root.join("compatibilitytools.d"),
+            PathBuf::from("~/.local/share/Steam/compatibilitytools.d"),
+            PathBuf::from("~/.steam/root/compatibilitytools.d"),
+            PathBuf::from("~/.steam/steam/compatibilitytools.d"),
+            PathBuf::from("~/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"),
+        ];
+        for dir in compat_dirs.iter() {
+            let d = shellexpand::tilde(&dir.display().to_string()).to_string();
+            let d = PathBuf::from(d);
+            if d.is_dir() {
+                if let Ok(read) = std::fs::read_dir(&d) {
+                    for entry in read.flatten() {
+                        let label = entry.file_name().to_string_lossy().to_string();
+                        let p = entry.path().join("proton");
+                        if p.exists() { out.push((label, p.display().to_string())); }
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(p) = which::which("proton") {
+        out.push(("PATH: proton".to_string(), p.display().to_string()));
+    }
+    // Dedup by path, keep first occurrence (prefer official order)
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|(_, path)| seen.insert(path.clone()));
+    out
+}
+
+#[cfg(unix)]
+pub fn launch_game(exe_path: PathBuf, settings: &AppSettings) -> std::io::Result<()> {
+    let args = build_launch_args(settings);
+    let Some(parent_dir) = exe_path.parent().map(|p| p.to_path_buf()) else { return Err(std::io::Error::new(std::io::ErrorKind::Other, "invalid exe path")); };
+    let steam_root = detect_linux_steam_root(settings)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Steam root not found"))?;
+    let compat = steam_root.join("steamapps/compatdata/4000");
+
+    if settings.linux_launch_via_steam {
+        // Launch through Steam so it selects Proton per user settings; export per-app env
+        // Prefer steam binary from PATH, otherwise try common locations
+        let steam_bin = which::which("steam").unwrap_or_else(|_| PathBuf::from("steam"));
+        let mut cmd = Command::new(steam_bin);
+        cmd.arg("-applaunch");
+        cmd.arg("4000");
+        // Pass arguments through to the game
+        cmd.args(args);
+        cmd.current_dir(&parent_dir);
+        cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", &steam_root);
+        cmd.env("STEAM_COMPAT_DATA_PATH", &compat);
+        cmd.env("WINEDLLOVERRIDES", "d3d9=n,b");
+        if settings.linux_use_dxvk_hdr { cmd.env("DXVK_HDR", "1"); }
+        if settings.linux_enable_proton_log { cmd.env("PROTON_LOG", "1"); }
+        let _ = cmd.spawn()?;
+        return Ok(());
+    }
+
+    // Direct Proton invocation
+    let proton = detect_linux_proton(settings, &steam_root)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Proton not found"))?;
+    let mut cmd = Command::new(&proton);
+    cmd.arg("run");
+    cmd.arg(&exe_path);
+    cmd.args(args);
+    cmd.current_dir(&parent_dir);
+    cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", &steam_root);
+    cmd.env("STEAM_COMPAT_DATA_PATH", &compat);
+    cmd.env("WINEDLLOVERRIDES", "d3d9=n,b");
+    if settings.linux_use_dxvk_hdr { cmd.env("DXVK_HDR", "1"); }
+    if settings.linux_enable_proton_log { cmd.env("PROTON_LOG", "1"); }
     let _ = cmd.spawn()?;
     Ok(())
 }

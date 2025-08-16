@@ -27,6 +27,8 @@ pub use rtxio::{has_rtxio_packages, extract_packages};
 pub use usda::apply_usda_fixes;
 pub use update::{detect_updates, apply_updates, FileUpdateInfo};
 pub use launch::{build_launch_args, launch_game};
+#[cfg(unix)]
+pub use launch::list_proton_builds;
 pub use logging::init_logging;
 pub use patching::{apply_patches_from_repo, PatchResult};
 
