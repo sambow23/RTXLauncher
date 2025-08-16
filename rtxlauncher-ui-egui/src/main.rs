@@ -508,6 +508,10 @@ impl LauncherApp {
 			// if not finished, put receiver back
 			if !finished { self.current_job = Some(rx); }
 		}
+		// Refresh settings from disk on completion so version fields update
+		if !self.is_running {
+			if let Ok(s) = self.settings_store.load() { self.settings = s; }
+		}
 	}
 	fn draw_toasts(&mut self, ctx: &egui::Context) {
 		let now = std::time::Instant::now();
