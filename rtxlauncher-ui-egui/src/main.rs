@@ -123,9 +123,12 @@ impl App for LauncherApp {
 			ui.selectable_value(&mut self.selected, Tab::Settings, "Settings");
 			ui.add_space(8.0);
 			ui.separator();
-			if !is_elevated() {
-				ui.colored_label(egui::Color32::YELLOW, "Not elevated: some operations may fail.");
-				ui.separator();
+			#[cfg(windows)]
+			{
+				if !is_elevated() {
+					ui.colored_label(egui::Color32::YELLOW, "Not elevated: some operations may fail.");
+					ui.separator();
+				}
 			}
 			ui.add_space(8.0);
 			let remaining = ui.available_size();
@@ -137,7 +140,7 @@ impl App for LauncherApp {
 						let root_exe = exec_dir.join("gmod.exe");
 						let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
 						let exe = if win64_exe.exists() { win64_exe } else if root_exe.exists() { root_exe } else { exec_dir.join("hl2.exe") };
-						if launch_game(exe, &self.settings).is_ok() { self.add_toast("Launched game", egui::Color32::LIGHT_GREEN); } else { self.add_toast("Failed to launch game", egui::Color32::RED); }
+						if launch_game(exe, &self.settings).is_ok() { self.add_toast("Launched game", egui::Color32::LIGHT_GREEN); } else { self.add_toast("Failed to launch game — check Proton path/Steam root in Settings", egui::Color32::RED); }
 					}
 				}
 				ui.add_space(6.0);
@@ -363,8 +366,6 @@ impl App for LauncherApp {
 					{
 						ui.separator();
 						ui.label("Linux launch (Proton)");
-						if ui.checkbox(&mut self.settings.linux_launch_via_steam, "Launch via Steam (applaunch)").changed() { let _ = self.settings_store.save(&self.settings); }
-						if ui.checkbox(&mut self.settings.linux_use_dxvk_hdr, "Enable DXVK HDR").changed() { let _ = self.settings_store.save(&self.settings); }
 						if ui.checkbox(&mut self.settings.linux_enable_proton_log, "Enable PROTON_LOG").changed() { let _ = self.settings_store.save(&self.settings); }
 						ui.horizontal(|ui| {
 							ui.label("Proton build:");
@@ -383,7 +384,7 @@ impl App for LauncherApp {
 							});
 						});
 						ui.horizontal(|ui| {
-							ui.label("Proton path:");
+							ui.label("Proton path override:");
 							let mut v = self.settings.linux_proton_path.clone().unwrap_or_default();
 							if ui.text_edit_singleline(&mut v).changed() { self.settings.linux_proton_path = if v.trim().is_empty() { None } else { Some(v) }; let _ = self.settings_store.save(&self.settings); }
 						});

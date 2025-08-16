@@ -185,38 +185,32 @@ pub fn launch_game(exe_path: PathBuf, settings: &AppSettings) -> std::io::Result
     let steam_root = detect_linux_steam_root(settings)
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Steam root not found"))?;
     let compat = steam_root.join("steamapps/compatdata/4000");
-
-    if settings.linux_launch_via_steam {
-        // Launch through Steam so it selects Proton per user settings; export per-app env
-        // Prefer steam binary from PATH, otherwise try common locations
-        let steam_bin = which::which("steam").unwrap_or_else(|_| PathBuf::from("steam"));
-        let mut cmd = Command::new(steam_bin);
-        cmd.arg("-applaunch");
-        cmd.arg("4000");
-        // Pass arguments through to the game
-        cmd.args(args);
-        cmd.current_dir(&parent_dir);
-        cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", &steam_root);
-        cmd.env("STEAM_COMPAT_DATA_PATH", &compat);
-        cmd.env("WINEDLLOVERRIDES", "d3d9=n,b");
-        if settings.linux_use_dxvk_hdr { cmd.env("DXVK_HDR", "1"); }
-        if settings.linux_enable_proton_log { cmd.env("PROTON_LOG", "1"); }
-        let _ = cmd.spawn()?;
-        return Ok(());
-    }
+    // Ensure compatdata dir exists so Proton/Steam can set up the prefix
+    let _ = std::fs::create_dir_all(&compat);
 
     // Direct Proton invocation
     let proton = detect_linux_proton(settings, &steam_root)
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Proton not found"))?;
+    // Best-effort ensure Steam client is running so SteamAPI can initialize
+    if let Ok(steam_bin) = which::which("steam") {
+        let _ = std::process::Command::new(steam_bin).arg("-silent").spawn();
+        // a brief delay can help SteamAPI attach; non-blocking preferred, so skip sleep here
+    }
     let mut cmd = Command::new(&proton);
     cmd.arg("run");
+    // Steam likes exe path relative to the game root; Proton `run` accepts abs. Keep abs path.
     cmd.arg(&exe_path);
     cmd.args(args);
     cmd.current_dir(&parent_dir);
     cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", &steam_root);
     cmd.env("STEAM_COMPAT_DATA_PATH", &compat);
     cmd.env("WINEDLLOVERRIDES", "d3d9=n,b");
-    if settings.linux_use_dxvk_hdr { cmd.env("DXVK_HDR", "1"); }
+    // Provide Steam App ID hints and steam_appid.txt to satisfy SteamAPI
+    cmd.env("SteamAppId", "4000");
+    cmd.env("SteamAppID", "4000");
+    cmd.env("SteamGameId", "4000");
+    cmd.env("SteamOverlayGameId", "4000");
+    let _ = std::fs::write(parent_dir.join("steam_appid.txt"), b"4000\n");
     if settings.linux_enable_proton_log { cmd.env("PROTON_LOG", "1"); }
     let _ = cmd.spawn()?;
     Ok(())
