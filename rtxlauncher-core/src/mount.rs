@@ -1,6 +1,6 @@
 use anyhow::{Result, Context};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use crate::fs_linker::{link_dir_best_effort};
 use tracing::info;
 
@@ -9,7 +9,7 @@ fn get_this_install_folder() -> Result<PathBuf> {
     Ok(exe.parent().unwrap().to_path_buf())
 }
 
-pub fn is_game_mounted(game_folder: &str, install_folder: &str, remix_mod_folder: &str) -> bool {
+pub fn is_game_mounted(game_folder: &str, _install_folder: &str, remix_mod_folder: &str) -> bool {
     if let Ok(gmod_path) = get_this_install_folder() {
         let src_mount = gmod_path.join("garrysmod").join("addons").join(format!("mount-{}", game_folder));
         let remix_mount = gmod_path.join("rtx-remix").join("mods").join(format!("mount-{}-{}", game_folder, remix_mod_folder));
@@ -94,7 +94,7 @@ pub fn mount_game(game_folder: &str, install_folder: &str, remix_mod_folder: &st
     Ok(())
 }
 
-pub fn unmount_game(game_folder: &str, install_folder: &str, remix_mod_folder: &str, mut progress_cb: impl FnMut(&str)) -> Result<()> {
+pub fn unmount_game(game_folder: &str, _install_folder: &str, remix_mod_folder: &str, mut progress_cb: impl FnMut(&str)) -> Result<()> {
     let mut progress = |m: &str| { info!("{}", m); progress_cb(m); };
     progress("Unmounting...");
     let gmod_path = get_this_install_folder()?;

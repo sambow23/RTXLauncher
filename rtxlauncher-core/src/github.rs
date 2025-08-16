@@ -1,7 +1,7 @@
 use anyhow::{Result, Context};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, time::{Duration, SystemTime}};
+use std::{fs, path::PathBuf, time::Duration};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

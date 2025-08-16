@@ -1,9 +1,6 @@
 use anyhow::{Result, Context};
-use crate::github::GitHubRateLimit;
-use crate::github::fetch_releases; // not used; we fetch raw file via HTTP
 use reqwest::Client;
-use std::{collections::{HashMap, HashSet}, path::{Path, PathBuf}};
-use tracing::info;
+use std::{collections::{HashMap}, path::Path};
 
 #[derive(Debug, Clone, Default)]
 pub struct PatchResult {

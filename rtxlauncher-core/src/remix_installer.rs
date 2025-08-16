@@ -1,15 +1,12 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crate::github::{GitHubRelease, GitHubAsset};
 use std::path::PathBuf;
-use std::fs;
 use zip::ZipArchive;
 use reqwest::Client;
 use futures_util::StreamExt;
 use std::io::Cursor;
 use std::io::Read;
 use std::fs::File;
-use std::io::Seek;
-use std::io::SeekFrom;
 use std::io::Write;
 use std::fs::create_dir_all;
 use tracing::info;
@@ -74,7 +71,7 @@ pub async fn install_remix_from_release(
     progress_cb("Analyzing package", 65);
     let mut cursor = Cursor::new(&data);
     let mut zip = ZipArchive::new(&mut cursor)?;
-    let (has_trex, has_d3d9) = analyze_zip_for_layout(&mut zip);
+    let (_has_trex, _has_d3d9) = analyze_zip_for_layout(&mut zip);
     // reset cursor to re-open archive for extraction
     cursor.set_position(0);
     let mut zip = ZipArchive::new(cursor)?;

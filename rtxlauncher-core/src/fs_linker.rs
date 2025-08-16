@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[cfg(windows)]
 use std::os::windows::fs as winfs;
