@@ -76,7 +76,14 @@ struct LauncherApp {
 impl Default for LauncherApp {
 	fn default() -> Self {
 		let store = SettingsStore::new().unwrap_or_else(|_| panic!("settings store init failed"));
-		let settings = store.load().unwrap_or_default();
+		let mut settings = store.load().unwrap_or_default();
+		// Auto-detect Steam install path on first run if not set, so the UI isn't empty
+		if settings.manually_specified_install_path.is_none() {
+			if let Some(p) = detect_gmod_install_folder() {
+				settings.manually_specified_install_path = Some(p.display().to_string());
+				let _ = store.save(&settings);
+			}
+		}
 		Self {
 			log: String::new(),
 			progress: 0,
@@ -108,6 +115,12 @@ impl App for LauncherApp {
 	fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		// Ensure image loaders are installed once per frame; cheap no-op after first
 		egui_extras::install_image_loaders(ctx);
+		// Ensure UI refreshes even without input so progress/logs update
+		// Only repaint periodically while the window is focused to reduce background CPU usage
+		let is_focused = ctx.input(|i| i.focused);
+		if is_focused {
+			ctx.request_repaint_after(std::time::Duration::from_millis(1000));
+		}
 
 		egui::SidePanel::left("nav").resizable(true).min_width(160.0).show(ctx, |ui| {
 			// Icon + title
@@ -201,6 +214,11 @@ impl App for LauncherApp {
 												let rel = remix_list[remix_release_idx.min(remix_list.len()-1)].clone();
 												let base = exec_dir.clone();
 												let _ = install_remix_from_release(&rel, &base, |m,p| { let scaled = 25 + ((p as u16 * 35) / 100) as u8; let _ = tx.send(JobProgress { message: m.to_string(), percent: scaled }); }).await;
+												// Save installed remix version
+												let label = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+												if let Ok(store) = rtxlauncher_core::SettingsStore::new() {
+													if let Ok(mut s) = store.load() { s.installed_remix_version = Some(label); let _ = store.save(&s); }
+												}
 											}
 
 											// Stage 3: install fixes package
@@ -212,13 +230,21 @@ impl App for LauncherApp {
 												let rel = fixes_list[fixes_release_idx.min(fixes_list.len()-1)].clone();
 												let base = exec_dir.clone();
 												let _ = install_fixes_from_release(&rel, &base, Some(DEFAULT_IGNORE_PATTERNS), |m,p| { let scaled = 60 + ((p as u16 * 25) / 100) as u8; let _ = tx.send(JobProgress { message: m.to_string(), percent: scaled }); }).await;
+												// Save installed fixes version
+												let label = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+												if let Ok(store) = rtxlauncher_core::SettingsStore::new() { if let Ok(mut s) = store.load() { s.installed_fixes_version = Some(label); let _ = store.save(&s); } }
 											}
 
 											// Stage 4: apply binary patches
 											let patch_sources: [(&str, &str); 3] = [("sambow23", "SourceRTXTweaks"), ("BlueAmulet", "SourceRTXTweaks"), ("Xenthio", "SourceRTXTweaks")];
 											let (owner_p, repo_p) = patch_sources[patch_source_idx.min(2)];
 											let base = exec_dir.clone();
-											let _ = apply_patches_from_repo(owner_p, repo_p, "applypatch.py", &base, |m,p| { let scaled = 85 + ((p as u16 * 15) / 100) as u8; let _ = tx.send(JobProgress { message: m.to_string(), percent: scaled.min(99) }); }).await;
+											match apply_patches_from_repo(owner_p, repo_p, "applypatch.py", &base, |m,p| { let scaled = 85 + ((p as u16 * 15) / 100) as u8; let _ = tx.send(JobProgress { message: m.to_string(), percent: scaled.min(99) }); }).await {
+												Ok(_) => {
+													if let Ok(store) = rtxlauncher_core::SettingsStore::new() { if let Ok(mut s) = store.load() { s.installed_patches_commit = Some(format!("{}/{}", owner_p, repo_p)); let _ = store.save(&s); } }
+												}
+												Err(_) => {}
+											}
 											let _ = tx.send(JobProgress { message: "Quick install complete".into(), percent: 100 });
 										});
 									});
@@ -312,7 +338,7 @@ impl App for LauncherApp {
 					ui.heading("Settings");
 					let mut path_display = self.settings.manually_specified_install_path.clone().unwrap_or_default();
 					ui.horizontal(|ui| {
-						ui.label("Install path:");
+						ui.label("Original Garry's Mod path:");
 						ui.text_edit_singleline(&mut path_display);
 						if ui.add_enabled(!self.is_running, egui::Button::new("Browse")).clicked() {
 							if let Some(p) = FileDialog::new().set_directory("C:/").pick_folder() {

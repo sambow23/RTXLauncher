@@ -30,8 +30,8 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             manually_specified_install_path: None,
-            width: None,
-            height: None,
+            width: Some(1920),
+            height: Some(1080),
             // Defaults: enable console and workshop addons by default
             console_enabled: true,
             dxlevel: None,
