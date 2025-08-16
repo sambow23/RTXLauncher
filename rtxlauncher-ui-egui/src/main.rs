@@ -337,20 +337,56 @@ impl App for LauncherApp {
 					});
 					ui.separator();
 					ui.label("Launch options");
+					// Resolution dropdown (Auto, current window size, common presets)
+					let mut resolutions: Vec<(u32, u32)> = vec![(1280,720),(1280,800),(1366,768),(1440,900),(1600,900),(1680,1050),(1920,1080),(1920,1200),(2560,1080),(2560,1440),(2560,1600),(3440,1440),(3840,2160)];
+					let win_size = ctx.input(|i| i.screen_rect.size());
+					let current_px = (win_size.x.round() as u32, win_size.y.round() as u32);
+					if current_px.0 > 0 && current_px.1 > 0 && !resolutions.contains(&current_px) { resolutions.insert(0, current_px); }
+					resolutions.dedup();
 					ui.horizontal(|ui| {
-						let mut w = self.settings.width.unwrap_or_default();
-						ui.label("Width");
-						if ui.add(egui::DragValue::new(&mut w).clamp_range(0..=16384)).changed() {
-							self.settings.width = Some(w);
-							let _ = self.settings_store.save(&self.settings);
-						}
-						let mut h = self.settings.height.unwrap_or_default();
-						ui.label("Height");
-						if ui.add(egui::DragValue::new(&mut h).clamp_range(0..=16384)).changed() {
-							self.settings.height = Some(h);
-							let _ = self.settings_store.save(&self.settings);
-						}
+						ui.label("Resolution:");
+						let sel_w = self.settings.width.unwrap_or(0);
+						let sel_h = self.settings.height.unwrap_or(0);
+						let is_custom = !(sel_w > 0 && sel_h > 0 && resolutions.contains(&(sel_w, sel_h)));
+						let selected_text = if is_custom { "Custom".to_string() } else { format!("{}x{}", sel_w, sel_h) };
+						egui::ComboBox::from_id_source("res-dropdown").selected_text(selected_text).show_ui(ui, |ui| {
+							// Custom at top
+							if ui.selectable_label(is_custom, "Custom").clicked() {
+								// Mark as custom by clearing preset selection
+								self.settings.width = None;
+								self.settings.height = None;
+								let _ = self.settings_store.save(&self.settings);
+							}
+							for (w,h) in resolutions.iter().cloned() {
+								let label = format!("{}x{}", w,h);
+								let is_sel = sel_w==w && sel_h==h;
+								if ui.selectable_label(is_sel, label).clicked() {
+									self.settings.width = Some(w);
+									self.settings.height = Some(h);
+									let _ = self.settings_store.save(&self.settings);
+								}
+							}
+						});
 					});
+					let sel_w2 = self.settings.width.unwrap_or(0);
+					let sel_h2 = self.settings.height.unwrap_or(0);
+					let is_custom2 = !(sel_w2 > 0 && sel_h2 > 0 && resolutions.contains(&(sel_w2, sel_h2)));
+					if is_custom2 {
+						ui.horizontal(|ui| {
+							let mut w = self.settings.width.unwrap_or_default();
+							ui.label("Width");
+							if ui.add(egui::DragValue::new(&mut w).clamp_range(0..=16384)).changed() {
+								self.settings.width = Some(w);
+								let _ = self.settings_store.save(&self.settings);
+							}
+							let mut h = self.settings.height.unwrap_or_default();
+							ui.label("Height");
+							if ui.add(egui::DragValue::new(&mut h).clamp_range(0..=16384)).changed() {
+								self.settings.height = Some(h);
+								let _ = self.settings_store.save(&self.settings);
+							}
+						});
+					}
 					if ui.checkbox(&mut self.settings.console_enabled, "Enable console").changed() { let _ = self.settings_store.save(&self.settings); }
 					if ui.checkbox(&mut self.settings.load_workshop_addons, "Load Workshop Addons").changed() { let _ = self.settings_store.save(&self.settings); }
 					if ui.checkbox(&mut self.settings.disable_chromium, "Disable Chromium").changed() { let _ = self.settings_store.save(&self.settings); }
