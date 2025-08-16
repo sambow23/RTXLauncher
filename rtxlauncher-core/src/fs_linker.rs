@@ -36,7 +36,8 @@ pub fn link_dir_best_effort(src: &Path, dst: &Path) -> Result<()> {
     #[cfg(not(windows))]
     {
         // Non-Windows: symlink_dir
-        std::os::unix::fs::symlink(src, dst).or_else(|_| copy_dir_recursive(src, dst))?;
+        std::os::unix::fs::symlink(src, dst)
+            .or_else(|_| copy_dir_recursive(src, dst).map(|_| ()))?;
         return Ok(());
     }
 }

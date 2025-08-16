@@ -2,7 +2,9 @@ use eframe::{egui, App};
 use rtxlauncher_core::{is_elevated, SettingsStore, JobProgress, AppSettings, detect_gmod_install_folder, InstallPlan, perform_basic_install, mount_game, unmount_game, fetch_releases, GitHubRateLimit, install_remix_from_release, install_fixes_from_release, apply_usda_fixes, detect_updates, apply_updates, launch_game, set_personal_access_token, load_personal_access_token, init_logging, GitHubRelease, apply_patches_from_repo};
 use std::sync::mpsc::Receiver;
 use rfd::FileDialog;
+#[cfg(windows)]
 use windows::Win32::{UI::Shell::ShellExecuteW, Foundation::HWND};
+#[cfg(windows)]
 use windows::core::PCWSTR;
 
 const DEFAULT_IGNORE_PATTERNS: &str = r#"
@@ -354,23 +356,32 @@ impl App for LauncherApp {
 						let mut custom = self.settings.custom_launch_options.clone().unwrap_or_default();
 						if ui.text_edit_singleline(&mut custom).changed() { self.settings.custom_launch_options = if custom.trim().is_empty() { None } else { Some(custom) }; let _ = self.settings_store.save(&self.settings); }
 					});
-					if !is_elevated() {
-						if ui.button("Relaunch as Administrator").clicked() {
-							let exe = std::env::current_exe().ok();
-							if let Some(exe) = exe {
-								use std::os::windows::ffi::OsStrExt;
-								let wide: Vec<u16> = exe.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-								unsafe {
-									let _ = ShellExecuteW(
-										HWND(std::ptr::null_mut()),
-										PCWSTR("runas\0".encode_utf16().collect::<Vec<u16>>().as_ptr()),
-										PCWSTR(wide.as_ptr()),
-										PCWSTR(std::ptr::null()),
-										PCWSTR(std::ptr::null()),
-										windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-									);
+					#[cfg(windows)]
+					{
+						if !is_elevated() {
+							if ui.button("Relaunch as Administrator").clicked() {
+								let exe = std::env::current_exe().ok();
+								if let Some(exe) = exe {
+									use std::os::windows::ffi::OsStrExt;
+									let wide: Vec<u16> = exe.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+									unsafe {
+										let _ = ShellExecuteW(
+											HWND(std::ptr::null_mut()),
+											PCWSTR("runas\0".encode_utf16().collect::<Vec<u16>>().as_ptr()),
+											PCWSTR(wide.as_ptr()),
+											PCWSTR(std::ptr::null()),
+											PCWSTR(std::ptr::null()),
+											windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+										);
+									}
 								}
 							}
+						}
+					}
+					#[cfg(not(windows))]
+					{
+						if !is_elevated() {
+							ui.label("Administrative relaunch is available on Windows only.");
 						}
 					}
 				}
