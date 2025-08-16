@@ -43,7 +43,7 @@ bin/win64/usd_ms.dll
 "#;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab { Install, Mount, Repositories, Updates, Settings, About }
+enum Tab { Install, Mount, Repositories, Settings, About }
 
 struct Toast { msg: String, color: egui::Color32, until: std::time::Instant }
 
@@ -71,6 +71,13 @@ struct LauncherApp {
 	fixes_rx: Option<std::sync::mpsc::Receiver<Vec<GitHubRelease>>>,
 	fixes_loading: bool,
 	patch_source_idx: usize,
+	// Update Base Game dialog state
+	show_update_dialog: bool,
+	update_folder_options: Vec<String>,
+	update_folder_selected: Vec<bool>,
+	show_reapply_dialog: bool,
+	reapply_fixes: bool,
+	reapply_patches: bool,
 }
 
 impl Default for LauncherApp {
@@ -107,6 +114,12 @@ impl Default for LauncherApp {
 			fixes_rx: None,
 			fixes_loading: false,
 			patch_source_idx: 0,
+			show_update_dialog: false,
+			update_folder_options: Vec::new(),
+			update_folder_selected: Vec::new(),
+			show_reapply_dialog: false,
+			reapply_fixes: true,
+			reapply_patches: true,
 		}
 	}
 }
@@ -132,7 +145,6 @@ impl App for LauncherApp {
 			ui.selectable_value(&mut self.selected, Tab::Install, "Install");
 			ui.selectable_value(&mut self.selected, Tab::Mount, "Mounting");
 			ui.selectable_value(&mut self.selected, Tab::Repositories, "Repositories");
-			ui.selectable_value(&mut self.selected, Tab::Updates, "Updates");
 			ui.selectable_value(&mut self.selected, Tab::Settings, "Settings");
 			ui.selectable_value(&mut self.selected, Tab::About, "About");
 			ui.add_space(8.0);
@@ -314,26 +326,6 @@ impl App for LauncherApp {
 					self.show_logs(ui);
 				}
 				Tab::Repositories => { self.repositories_tab(ui); }
-				Tab::Updates => {
-					ui.heading("Updates");
-					ui.add_enabled_ui(!self.is_running, |ui| {
-						if ui.button("Scan for Updates").clicked() {
-							let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
-							self.current_job = Some(rx);
-							self.is_running = true;
-							std::thread::spawn(move || {
-								let src = rtxlauncher_core::detect_gmod_install_folder().unwrap_or_default();
-								let dst = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
-								let updates = detect_updates(&src, &dst).unwrap_or_default();
-								let _ = tx.send(JobProgress { message: format!("Found {} updates", updates.len()), percent: 10 });
-								let _ = apply_updates(&updates, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); });
-								let _ = tx.send(JobProgress { message: "Update applied".into(), percent: 100 });
-							});
-						}
-					});
-					ui.separator();
-					self.show_logs(ui);
-				}
 				Tab::Settings => {
 					ui.heading("Settings");
 					let mut path_display = self.settings.manually_specified_install_path.clone().unwrap_or_default();
@@ -514,6 +506,9 @@ impl App for LauncherApp {
 				
 			}
 		});
+		// Render any modals that may be active (outside of panel)
+		self.render_update_dialog(ctx);
+		self.render_reapply_dialog(ctx);
 		self.draw_toasts(ctx);
 	}
 }
@@ -566,6 +561,15 @@ impl LauncherApp {
 	fn repositories_tab(&mut self, ui: &mut egui::Ui) {
 		ui.heading("Repositories");
 		ui.separator();
+
+		// Update Base Game section
+		ui.group(|ui| {
+			ui.heading("Base Game Updates");
+			if ui.add_enabled(!self.is_running, egui::Button::new("Update Base Game")).clicked() {
+				self.prepare_update_dialog();
+				self.show_update_dialog = true;
+			}
+		});
 
 		if !self.remix_loading && self.remix_releases.is_empty() { self.start_fetch_releases(true); }
 		if !self.fixes_loading && self.fixes_releases.is_empty() { self.start_fetch_releases(false); }
@@ -726,6 +730,8 @@ impl LauncherApp {
 		// Poll async release fetchers
 		if let Some(rx) = self.remix_rx.take() { if let Ok(list) = rx.try_recv() { self.remix_releases = list; self.remix_release_idx = 0; self.remix_loading = false; } else { self.remix_rx = Some(rx); } }
 		if let Some(rx) = self.fixes_rx.take() { if let Ok(list) = rx.try_recv() { self.fixes_releases = list; self.fixes_release_idx = 0; self.fixes_loading = false; } else { self.fixes_rx = Some(rx); } }
+
+		// Modals rendered from update() with ctx
 	}
 
 	fn start_fetch_releases(&mut self, remix: bool) {
@@ -745,6 +751,146 @@ impl LauncherApp {
 			});
 		});
 	}
+}
+
+impl LauncherApp {
+    fn prepare_update_dialog(&mut self) {
+        self.update_folder_options.clear();
+        self.update_folder_selected.clear();
+        let vanilla = self.settings.manually_specified_install_path.clone()
+            .or_else(|| detect_gmod_install_folder().map(|p| p.display().to_string()));
+        if let Some(v) = vanilla {
+            let root = std::path::PathBuf::from(v);
+            // root-level only (top-level folders)
+            if let Ok(rd) = std::fs::read_dir(&root) {
+                for e in rd.flatten() {
+                    if e.path().is_dir() {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if ["crashes","logs","temp","update","xenmod"].contains(&name.as_str()) { continue; }
+                        self.update_folder_options.push(name);
+                        self.update_folder_selected.push(false);
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_update_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_update_dialog { return; }
+        egui::Window::new("Update Base Game")
+            .collapsible(false)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label("Select folders to copy from the vanilla installation:");
+                let mut any = false;
+                for (i, label) in self.update_folder_options.iter().enumerate() {
+                    let mut sel = self.update_folder_selected[i];
+                    if ui.checkbox(&mut sel, label).changed() { self.update_folder_selected[i] = sel; }
+                    any |= sel;
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(any && !self.is_running, egui::Button::new("Apply")).clicked() {
+                        self.show_update_dialog = false;
+                        self.start_base_update_job();
+                    }
+                    if ui.button("Cancel").clicked() { self.show_update_dialog = false; }
+                });
+            });
+    }
+
+    fn start_base_update_job(&mut self) {
+        let selected_prefixes: Vec<String> = self.update_folder_options.iter().cloned()
+            .zip(self.update_folder_selected.iter().cloned())
+            .filter_map(|(l, s)| if s { Some(l) } else { None }).collect();
+        let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
+        self.current_job = Some(rx);
+        self.is_running = true;
+        std::thread::spawn(move || {
+            // Locate paths
+            let src = rtxlauncher_core::detect_gmod_install_folder().unwrap_or_default();
+            let dst = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+            // Detect all updates then filter
+            let updates = rtxlauncher_core::detect_updates(&src, &dst).unwrap_or_default();
+            let include_root_execs = selected_prefixes.iter().any(|p| p == "bin");
+            let filtered: Vec<_> = updates.into_iter().filter(|u| {
+                if selected_prefixes.is_empty() { return false; }
+                let rp = &u.relative_path;
+                // root-level files (e.g., gmod.exe, hl2.exe, steam_appid.txt)
+                if !rp.contains('/') {
+                    return include_root_execs && (rp.eq_ignore_ascii_case("gmod.exe") || rp.eq_ignore_ascii_case("hl2.exe") || rp.eq_ignore_ascii_case("steam_appid.txt"));
+                }
+                // folder selection: match top-level prefix + '/'
+                for p in &selected_prefixes {
+                    let prefix = format!("{}/", p);
+                    if rp.starts_with(&prefix) || rp == p { return true; }
+                }
+                false
+            }).collect();
+            let _ = rtxlauncher_core::apply_updates(&filtered, |m,p| {
+                let scaled = ((p as u16 * 90) / 100) as u8; // scale into 0-90
+                let _ = tx.send(JobProgress { message: m.to_string(), percent: scaled });
+            });
+            let _ = tx.send(JobProgress { message: "Base game update complete".into(), percent: 100 });
+        });
+        // After job completes, show reapply dialog next frame
+        self.show_reapply_dialog = true;
+        self.reapply_fixes = true;
+        self.reapply_patches = true;
+    }
+
+    fn render_reapply_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_reapply_dialog || self.is_running { return; }
+        egui::Window::new("Reapply Components?")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Reapply components after updating base game?");
+                ui.checkbox(&mut self.reapply_fixes, "Reapply Fixes Package");
+                ui.checkbox(&mut self.reapply_patches, "Reapply Binary Patches");
+                ui.horizontal(|ui| {
+                    if ui.button("Proceed").clicked() {
+                        self.show_reapply_dialog = false;
+                        self.trigger_reapply_jobs();
+                    }
+                    if ui.button("Skip").clicked() { self.show_reapply_dialog = false; }
+                });
+            });
+    }
+
+    fn trigger_reapply_jobs(&mut self) {
+        // Reapply fixes and/or patches using current UI selections
+        if self.reapply_fixes {
+            if let Some(rel) = self.fixes_releases.get(self.fixes_release_idx).cloned() {
+                let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
+                self.current_job = Some(rx);
+                self.is_running = true;
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async move {
+                        let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+                        let _ = install_fixes_from_release(&rel, &base, Some(DEFAULT_IGNORE_PATTERNS), |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+                    });
+                });
+            }
+        }
+        if self.reapply_patches {
+            let (owner, repo) = {
+                let s = [("sambow23","SourceRTXTweaks"),("BlueAmulet","SourceRTXTweaks"),("Xenthio","SourceRTXTweaks")][self.patch_source_idx.min(2)];
+                (s.0.to_string(), s.1.to_string())
+            };
+            let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
+            self.current_job = Some(rx);
+            self.is_running = true;
+            let install_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    let _ = apply_patches_from_repo(&owner, &repo, "applypatch.py", &install_dir, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+                });
+            });
+        }
+    }
 }
 
 #[tokio::main]
