@@ -43,7 +43,7 @@ bin/win64/usd_ms.dll
 "#;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab { Install, Mount, Repositories, Updates, Settings }
+enum Tab { Install, Mount, Repositories, Updates, Settings, About }
 
 struct Toast { msg: String, color: egui::Color32, until: std::time::Instant }
 
@@ -121,6 +121,7 @@ impl App for LauncherApp {
 			ui.selectable_value(&mut self.selected, Tab::Repositories, "Repositories");
 			ui.selectable_value(&mut self.selected, Tab::Updates, "Updates");
 			ui.selectable_value(&mut self.selected, Tab::Settings, "Settings");
+			ui.selectable_value(&mut self.selected, Tab::About, "About");
 			ui.add_space(8.0);
 			ui.separator();
 			#[cfg(windows)]
@@ -459,6 +460,31 @@ impl App for LauncherApp {
 						}
 					}
 				}
+				Tab::About => {
+					ui.heading("About");
+					ui.separator();
+					ui.label("A recreation of Xenthio's original .NET launcher, aimed for cross-platform support like Linux, in addition to upcoming features.");
+					ui.separator();
+					// Launcher version (git hash)
+					let git = option_env!("GIT_COMMIT_HASH").unwrap_or("unknown");
+					ui.label(format!("Launcher version: {}", git));
+					// GMod game version: best-effort based on vanilla path mtime
+					if let Some(p) = rtxlauncher_core::detect_gmod_install_folder() {
+						if let Ok(meta) = std::fs::metadata(&p) {
+							if let Ok(modified) = meta.modified() {
+								use chrono::{DateTime, Local};
+								let dt: DateTime<Local> = modified.into();
+								ui.label(format!("GMod install modified: {}", dt.format("%d/%m/%Y %H:%M")));
+							}
+						}
+					}
+					let remix_v = self.settings.installed_remix_version.clone().unwrap_or_else(|| "(unknown)".into());
+					let fixes_v = self.settings.installed_fixes_version.clone().unwrap_or_else(|| "(unknown)".into());
+					let patch_c = self.settings.installed_patches_commit.clone().unwrap_or_else(|| "(none)".into());
+					ui.label(format!("Installed Remix: {}", remix_v));
+					ui.label(format!("Installed Fixes: {}", fixes_v));
+					ui.label(format!("Applied Patches: {}", patch_c));
+				}
 				
 			}
 		});
@@ -541,6 +567,7 @@ impl LauncherApp {
 				});
 				if ui.add_enabled(!self.is_running && !self.remix_releases.is_empty(), egui::Button::new("Install/Update")).clicked() {
 					let rel = self.remix_releases[self.remix_release_idx].clone();
+					let rel_label = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
 					let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
 					self.current_job = Some(rx);
 					self.is_running = true;
@@ -549,6 +576,12 @@ impl LauncherApp {
 						rt.block_on(async move {
 							let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
 							let _ = install_remix_from_release(&rel, &base, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+							if let Ok(store) = rtxlauncher_core::SettingsStore::new() {
+								if let Ok(mut s) = store.load() {
+									s.installed_remix_version = Some(rel_label);
+									let _ = store.save(&s);
+								}
+							}
 						});
 					});
 				}
@@ -584,6 +617,7 @@ impl LauncherApp {
 				});
 				if ui.add_enabled(!self.is_running && !self.fixes_releases.is_empty(), egui::Button::new("Install/Update")).clicked() {
 					let rel = self.fixes_releases[self.fixes_release_idx].clone();
+					let rel_label = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
 					let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
 					self.current_job = Some(rx);
 					self.is_running = true;
@@ -592,6 +626,12 @@ impl LauncherApp {
 						rt.block_on(async move {
 							let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
 							let _ = install_fixes_from_release(&rel, &base, Some(DEFAULT_IGNORE_PATTERNS), |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+							if let Ok(store) = rtxlauncher_core::SettingsStore::new() {
+								if let Ok(mut s) = store.load() {
+									s.installed_fixes_version = Some(rel_label);
+									let _ = store.save(&s);
+								}
+							}
 						});
 					});
 				}
@@ -623,7 +663,6 @@ impl LauncherApp {
 					let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
 					self.current_job = Some(rx);
 					self.is_running = true;
-					// Write patches relative to where the launcher executable is located (RTX install root)
 					let install_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
 					std::thread::spawn(move || {
 						let rt = tokio::runtime::Runtime::new().unwrap();
@@ -634,6 +673,12 @@ impl LauncherApp {
 								Ok(res) => {
 									let _ = tx.send(JobProgress { message: format!("Patched {} file(s).", res.files_patched), percent: 100 });
 									for w in res.warnings { let _ = tx.send(JobProgress { message: format!("Warning: {}", w), percent: 100 }); }
+									if let Ok(store) = rtxlauncher_core::SettingsStore::new() {
+										if let Ok(mut s) = store.load() {
+											s.installed_patches_commit = Some(format!("{}/{}", owner, repo));
+											let _ = store.save(&s);
+										}
+									}
 								}
 								Err(e) => {
 									let _ = tx.send(JobProgress { message: format!("Error: {}", e), percent: 100 });

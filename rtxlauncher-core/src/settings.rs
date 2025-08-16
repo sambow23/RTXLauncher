@@ -20,6 +20,10 @@ pub struct AppSettings {
     pub linux_steam_root_override: Option<String>,
     pub linux_enable_proton_log: bool,
     pub linux_selected_proton_label: Option<String>,
+    // Recorded installed component versions
+    pub installed_remix_version: Option<String>,
+    pub installed_fixes_version: Option<String>,
+    pub installed_patches_commit: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -40,6 +44,9 @@ impl Default for AppSettings {
             linux_steam_root_override: None,
             linux_enable_proton_log: false,
             linux_selected_proton_label: None,
+            installed_remix_version: None,
+            installed_fixes_version: None,
+            installed_patches_commit: None,
         }
     }
 }
