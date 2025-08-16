@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use eframe::{egui, App};
 use rtxlauncher_core::{is_elevated, SettingsStore, JobProgress, AppSettings, detect_gmod_install_folder, InstallPlan, perform_basic_install, mount_game, unmount_game, fetch_releases, GitHubRateLimit, install_remix_from_release, install_fixes_from_release, apply_usda_fixes, detect_updates, apply_updates, launch_game, set_personal_access_token, load_personal_access_token, init_logging, GitHubRelease, apply_patches_from_repo};
 #[cfg(unix)]
