@@ -227,10 +227,10 @@ impl App for LauncherApp {
 			);
 		});
 
-		egui::SidePanel::left("nav").resizable(false).exact_width(150.0).show(ctx, |ui| {
+		egui::SidePanel::left("nav").resizable(false).exact_width(180.0).show(ctx, |ui| {
 			ui.horizontal(|ui| {
 				let image = egui::include_image!("gmodrtx.png");
-				ui.add(egui::Image::new(image).fit_to_exact_size(egui::vec2(120.0, 120.0)));
+				ui.add(egui::Image::new(image).fit_to_exact_size(egui::vec2(165.0, 165.0)));
 			});
 			ui.separator();
 			// Larger navigation tabs with custom font size
@@ -258,7 +258,6 @@ impl App for LauncherApp {
 				ui.selectable_value(&mut self.selected, Tab::About, egui::RichText::new("About").size(20.0))
 			});
 			ui.add_space(8.0);
-			ui.separator();
 			#[cfg(windows)]
 			{
 				if !is_elevated() {

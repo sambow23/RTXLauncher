@@ -59,144 +59,145 @@ pub fn render_setup_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui) {
 		app.add_toast("Setup completed successfully!", egui::Color32::LIGHT_GREEN);
 	}
 
-	ui.vertical_centered(|ui| {
-		ui.add_space(40.0);
-		
-		// RTX Launcher logo/title
-		ui.heading(egui::RichText::new("Welcome to the Garry's Mod RTX Launcher").size(28.0));
-		ui.add_space(20.0);
-
-		// Check if this is a returning user with completed setup
-		let is_returning_user = matches!(app.settings.setup_completed, Some(true)) && !app.setup.is_running && !app.setup.setup_completed;
-
-		// Setup status or progress
-		if app.setup.is_running {
+	// Use a simpler approach: center vertically using available space
+	ui.allocate_ui_with_layout(
+		ui.available_size(),
+		egui::Layout::top_down(egui::Align::Center),
+		|ui| {
+			// Add flexible space at the top to push content to center
+			let available_height = ui.available_height();
+			ui.add_space(available_height * 0.25); // Start content at 25% down
+			
 			ui.vertical_centered(|ui| {
-				ui.label(egui::RichText::new("Setting up Garry's Mod RTX...").size(18.0));
-				ui.add_space(10.0);
-				
-				let pct = app.setup.progress as f32 / 100.0;
-				let bar = egui::ProgressBar::new(pct)
-					.text(format!("{}%", app.setup.progress))
-					.desired_width(400.0)
-					.desired_height(20.0);
-				ui.add(bar);
-				ui.add_space(10.0);
-				ui.label("This may take several minutes depending on your internet connection...");
-			});
-		} else if is_returning_user {
-			// Returning user with completed setup
-			ui.vertical_centered(|ui| {
-				ui.colored_label(egui::Color32::LIGHT_GREEN, 
-					egui::RichText::new("Garry's Mod RTX is Already Installed").size(20.0));
-				ui.add_space(10.0);
-				ui.label("Your Garry's Mod RTX installation is ready to use!");
-				ui.add_space(15.0);
-				ui.label("You can:");
-				ui.add_space(5.0);
-				ui.horizontal(|ui| {
-					ui.add_space(20.0);
-					ui.vertical(|ui| {
-						ui.label("• Launch the game using the Launch Game button");
-						ui.label("• Adjust settings in the Settings tab");
-						ui.label("• Mount content from other games in the Mounting tab");
-					});
-				});
+				// RTX Launcher logo/title
+				ui.heading(egui::RichText::new("Welcome to the Garry's Mod RTX Launcher").size(28.0));
 				ui.add_space(20.0);
-				
-				// Offer reinstall option
-				ui.separator();
-				ui.add_space(15.0);
-				ui.label(egui::RichText::new("Need to reinstall?").size(16.0));
-				ui.add_space(10.0);
-				if ui.add_sized([200.0, 35.0], 
-					egui::Button::new(egui::RichText::new("Reinstall Garry's Mod RTX").size(14.0))
-						.rounding(egui::Rounding::same(6.0))
-				).clicked() {
-					start_quick_install(app);
-				}
-			});
-		} else if app.setup.setup_completed {
-			ui.vertical_centered(|ui| {
-				ui.colored_label(egui::Color32::LIGHT_GREEN, 
-					egui::RichText::new("Setup Complete!").size(20.0));
-				ui.add_space(10.0);
-				ui.label("Garry's Mod RTX has been successfully installed and configured.");
-				ui.add_space(15.0);
-				ui.label("You can now:");
-				ui.add_space(5.0);
-				ui.horizontal(|ui| {
-					ui.add_space(20.0);
-					ui.vertical(|ui| {
-						ui.label("• Launch the game using the Launch Game button");
-						ui.label("• Adjust screen resolution and other options in Settings");
-						ui.label("• Mount content from other games in the Mounting tab");
-					});
-				});
-			});
-		} else {
-			// First-time setup prompt
-			ui.vertical_centered(|ui| {
-				ui.label(egui::RichText::new("Would you like to run the quick install process?").size(18.0));
-				ui.add_space(15.0);
-				
-				ui.label("This will automatically:");
-				ui.add_space(5.0);
-				
-				ui.horizontal(|ui| {
-					ui.add_space(20.0);
-					ui.vertical(|ui| {
-						ui.label("• Download and install RTX Remix");
-						ui.label("• Install community fixes and patches");
-						ui.label("• Configure optimal settings");
-						ui.label("• Copy necessary files from your Steam installation");
-					});
-				});
-				
-				ui.add_space(25.0);
-				
-				// Check if Garry's Mod installation is detected
-				let gmod_detected = detect_gmod_install_folder().is_some();
-				if !gmod_detected {
-					ui.colored_label(egui::Color32::YELLOW, 
-						"⚠ Garry's Mod installation not automatically detected");
-					ui.label("You may need to specify the installation path in Settings.");
+
+				// Check if this is a returning user with completed setup
+				let is_returning_user = matches!(app.settings.setup_completed, Some(true)) && !app.setup.is_running && !app.setup.setup_completed;
+
+				// Setup status or progress
+				if app.setup.is_running {
+					ui.label(egui::RichText::new("Setting up Garry's Mod RTX...").size(18.0));
 					ui.add_space(10.0);
-				}
-				
-				ui.horizontal(|ui| {
-					// Center the buttons
-					let button_width = 140.0;
-					let button_height = 45.0;
-					let spacing = 20.0;
-					let total_width = button_width * 2.0 + spacing;
-					let available_width = ui.available_width();
-					let offset = (available_width - total_width) / 2.0;
-					ui.add_space(offset);
 					
-					if ui.add_sized([button_width, button_height], 
-						egui::Button::new(egui::RichText::new("Quick Install").size(16.0))
-							.rounding(egui::Rounding::same(8.0))
+					let pct = app.setup.progress as f32 / 100.0;
+					let bar = egui::ProgressBar::new(pct)
+						.text(format!("{}%", app.setup.progress))
+						.desired_width(400.0)
+						.desired_height(20.0);
+					ui.add(bar);
+					ui.add_space(10.0);
+					ui.label("This may take several minutes depending on your internet connection...");
+				} else if is_returning_user {
+					// Returning user with completed setup
+					ui.colored_label(egui::Color32::LIGHT_GREEN, 
+						egui::RichText::new("Garry's Mod RTX is Already Installed").size(20.0));
+					ui.add_space(10.0);
+					ui.label("Your Garry's Mod RTX installation is ready to use!");
+					ui.add_space(15.0);
+					ui.label("You can:");
+					ui.add_space(5.0);
+					ui.horizontal(|ui| {
+						ui.add_space(20.0);
+						ui.vertical(|ui| {
+							ui.label("• Launch the game using the Launch Game button");
+							ui.label("• Adjust settings in the Settings tab");
+							ui.label("• Mount content from other games in the Mounting tab");
+						});
+					});
+					ui.add_space(20.0);
+					
+					// Offer reinstall option
+					ui.separator();
+					ui.add_space(15.0);
+					ui.label(egui::RichText::new("Need to reinstall?").size(16.0));
+					ui.add_space(10.0);
+					if ui.add_sized([200.0, 35.0], 
+						egui::Button::new(egui::RichText::new("Reinstall Garry's Mod RTX").size(14.0))
+							.rounding(egui::Rounding::same(6.0))
 					).clicked() {
 						start_quick_install(app);
 					}
+				} else if app.setup.setup_completed {
+					ui.colored_label(egui::Color32::LIGHT_GREEN, 
+						egui::RichText::new("Setup Complete!").size(20.0));
+					ui.add_space(10.0);
+					ui.label("Garry's Mod RTX has been successfully installed and configured.");
+					ui.add_space(15.0);
+					ui.label("You can now:");
+					ui.add_space(5.0);
+					ui.horizontal(|ui| {
+						ui.add_space(20.0);
+						ui.vertical(|ui| {
+							ui.label("• Launch the game using the Launch Game button");
+							ui.label("• Adjust screen resolution and other options in Settings");
+							ui.label("• Mount content from other games in the Mounting tab");
+						});
+					});
+				} else {
+					// First-time setup prompt
+					ui.label(egui::RichText::new("Would you like to run the quick install process?").size(18.0));
+					ui.add_space(15.0);
 					
-					ui.add_space(spacing);
+					ui.label("This will automatically:");
+					ui.add_space(5.0);
 					
-					if ui.add_sized([button_width, button_height], 
-						egui::Button::new(egui::RichText::new("Skip for Now").size(16.0))
-							.rounding(egui::Rounding::same(8.0))
-					).clicked() {
-						// Mark setup as completed but without installation
-						app.settings.setup_completed = Some(false);
-						let _ = app.settings_store.save(&app.settings);
-						app.selected = crate::app::Tab::Settings;
-						app.add_toast("You can run installation later from the Repositories tab", egui::Color32::LIGHT_BLUE);
+					ui.horizontal(|ui| {
+						ui.add_space(20.0);
+						ui.vertical(|ui| {
+							ui.label("• Download and install RTX Remix");
+							ui.label("• Install community fixes and patches");
+							ui.label("• Configure optimal settings");
+							ui.label("• Copy necessary files from your Steam installation");
+						});
+					});
+					
+					ui.add_space(25.0);
+					
+					// Check if Garry's Mod installation is detected
+					let gmod_detected = detect_gmod_install_folder().is_some();
+					if !gmod_detected {
+						ui.colored_label(egui::Color32::YELLOW, 
+							"⚠ Garry's Mod installation not automatically detected");
+						ui.label("You may need to specify the installation path in Settings.");
+						ui.add_space(10.0);
 					}
-				});
+					
+					ui.horizontal(|ui| {
+						// Center the buttons
+						let button_width = 140.0;
+						let button_height = 45.0;
+						let spacing = 20.0;
+						let total_width = button_width * 2.0 + spacing;
+						let available_width = ui.available_width();
+						let offset = (available_width - total_width) / 2.0;
+						ui.add_space(offset);
+						
+						if ui.add_sized([button_width, button_height], 
+							egui::Button::new(egui::RichText::new("Quick Install").size(16.0))
+								.rounding(egui::Rounding::same(8.0))
+						).clicked() {
+							start_quick_install(app);
+						}
+						
+						ui.add_space(spacing);
+						
+						if ui.add_sized([button_width, button_height], 
+							egui::Button::new(egui::RichText::new("Skip for Now").size(16.0))
+								.rounding(egui::Rounding::same(8.0))
+						).clicked() {
+							// Mark setup as completed but without installation
+							app.settings.setup_completed = Some(false);
+							let _ = app.settings_store.save(&app.settings);
+							app.selected = crate::app::Tab::Settings;
+							app.add_toast("You can run installation later from the Repositories tab", egui::Color32::LIGHT_BLUE);
+						}
+					});
+				}
 			});
-		}
-	});
+		},
+	);
 }
 
 fn start_quick_install(app: &mut crate::app::LauncherApp) {
