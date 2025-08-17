@@ -156,30 +156,106 @@ impl App for LauncherApp {
 		let is_focused = ctx.input(|i| i.focused);
 		if is_focused { ctx.request_repaint_after(std::time::Duration::from_millis(1000)); }
 
-		egui::SidePanel::left("nav").resizable(true).min_width(160.0).show(ctx, |ui| {
+		// Bottom status bar first (spans full width)
+		egui::TopBottomPanel::bottom("status_bar").exact_height(40.0).show(ctx, |ui| {
+			// Add vertical centering and horizontal padding
+			ui.allocate_ui_with_layout(
+				ui.available_size(),
+				egui::Layout::left_to_right(egui::Align::Center),
+				|ui| {
+					// Left padding
+					ui.add_space(8.0);
+					
+					let any_running = self.setup.is_running || self.repositories.is_running || self.mount.is_running;
+					
+					// Check if we should show the Launch Game button
+					let show_launch_button = match self.settings.setup_completed {
+						Some(true) => true,  // Setup completed successfully
+						Some(false) => true, // Setup was skipped, assume they have installation
+						None => {
+							// First time - check if there's an existing RTX installation
+							if let Ok(exec_dir) = std::env::current_exe().map(|p| p.parent().unwrap().to_path_buf()) {
+								let root_exe = exec_dir.join("gmod.exe");
+								let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
+								let hl2_exe = exec_dir.join("hl2.exe");
+								root_exe.exists() || win64_exe.exists() || hl2_exe.exists()
+							} else {
+								false
+							}
+						}
+					};
+					
+					// Launch Game button on the left
+					if show_launch_button {
+						if ui.add_enabled_ui(!any_running, |ui| {
+							ui.add_sized([120.0, 30.0], 
+								egui::Button::new(egui::RichText::new("Launch Game").size(14.0)).rounding(egui::Rounding::same(6.0))
+							)
+						}).inner.clicked() {
+							if let Ok(exec_dir) = std::env::current_exe().and_then(|p| p.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))) {
+								let root_exe = exec_dir.join("gmod.exe");
+								let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
+								let exe = if win64_exe.exists() { win64_exe } else if root_exe.exists() { root_exe } else { exec_dir.join("hl2.exe") };
+								if launch_game(exe, &self.settings).is_ok() { self.add_toast("Launched game", egui::Color32::LIGHT_GREEN); } else { self.add_toast("Failed to launch game — check Proton path/Steam root in Settings", egui::Color32::RED); }
+							}
+						}
+					}
+					
+					// Progress bar anchored to the right with proper padding
+					if any_running {
+						let (progress_pct, progress_text) = if self.setup.is_running {
+							(self.setup.progress as f32 / 100.0, format!("{}%", self.setup.progress))
+						} else if self.repositories.is_running {
+							(self.repositories.progress as f32 / 100.0, format!("{}%", self.repositories.progress))
+						} else if self.mount.is_running {
+							(0.0, "Mounting...".to_string())
+						} else {
+							(0.0, "Operation in progress...".to_string())
+						};
+						
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							// Right padding
+							ui.add_space(8.0);
+							let bar = egui::ProgressBar::new(progress_pct)
+								.text(progress_text)
+								.desired_width(250.0)
+								.desired_height(18.0);
+							ui.add(bar);
+						});
+					}
+				},
+			);
+		});
+
+		egui::SidePanel::left("nav").resizable(false).exact_width(150.0).show(ctx, |ui| {
 			ui.horizontal(|ui| {
 				let image = egui::include_image!("gmodrtx.png");
-				ui.add(egui::Image::new(image).fit_to_exact_size(egui::vec2(208.0, 208.0)));
+				ui.add(egui::Image::new(image).fit_to_exact_size(egui::vec2(120.0, 120.0)));
 			});
 			ui.separator();
 			// Larger navigation tabs with custom font size
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Setup, egui::RichText::new("Setup").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Setup, egui::RichText::new("Setup").size(20.0))
 			});
+			ui.add_space(10.0);
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Mount, egui::RichText::new("Mounting").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Mount, egui::RichText::new("Mounting").size(20.0))
 			});
+			ui.add_space(10.0);
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Repositories, egui::RichText::new("Repositories").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Repositories, egui::RichText::new("Repositories").size(20.0))
 			});
+			ui.add_space(10.0);
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Settings, egui::RichText::new("Settings").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Settings, egui::RichText::new("Settings").size(20.0))
 			});
+			ui.add_space(10.0);
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Logs, egui::RichText::new("Logs").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Logs, egui::RichText::new("Logs").size(20.0))
 			});
+			ui.add_space(10.0);
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::About, egui::RichText::new("About").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::About, egui::RichText::new("About").size(20.0))
 			});
 			ui.add_space(8.0);
 			ui.separator();
@@ -191,51 +267,7 @@ impl App for LauncherApp {
 				}
 			}
 			ui.add_space(8.0);
-			let remaining = ui.available_size();
-			ui.allocate_ui_with_layout(remaining, egui::Layout::bottom_up(egui::Align::Center), |ui| {
-				let any_running = self.setup.is_running || self.repositories.is_running || self.mount.is_running;
-				
-				// Check if we should show the Launch Game button
-				let show_launch_button = match self.settings.setup_completed {
-					Some(true) => true,  // Setup completed successfully
-					Some(false) => true, // Setup was skipped, assume they have installation
-					None => {
-						// First time - check if there's an existing RTX installation
-						if let Ok(exec_dir) = std::env::current_exe().map(|p| p.parent().unwrap().to_path_buf()) {
-							let root_exe = exec_dir.join("gmod.exe");
-							let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
-							let hl2_exe = exec_dir.join("hl2.exe");
-							root_exe.exists() || win64_exe.exists() || hl2_exe.exists()
-						} else {
-							false
-						}
-					}
-				};
-				
-				// Larger, rounded Launch Game button with custom font size
-				if show_launch_button {
-					if ui.add_enabled_ui(!any_running, |ui| {
-						ui.add_sized([ui.available_width() - 8.0, 48.0], 
-							egui::Button::new(egui::RichText::new("Launch Game").size(18.0)).rounding(egui::Rounding::same(10.0))
-						)
-					}).inner.clicked() {
-					if let Ok(exec_dir) = std::env::current_exe().and_then(|p| p.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))) {
-						let root_exe = exec_dir.join("gmod.exe");
-						let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
-						let exe = if win64_exe.exists() { win64_exe } else if root_exe.exists() { root_exe } else { exec_dir.join("hl2.exe") };
-						if launch_game(exe, &self.settings).is_ok() { self.add_toast("Launched game", egui::Color32::LIGHT_GREEN); } else { self.add_toast("Failed to launch game — check Proton path/Steam root in Settings", egui::Color32::RED); }
-					}
-					}
-				}
-				ui.add_space(6.0);
-				// Show setup progress if available
-				if self.setup.is_running {
-					let pct = self.setup.progress as f32 / 100.0;
-					let width = ui.available_width().min(220.0);
-					let bar = egui::ProgressBar::new(pct).text(format!("Setup: {}%", self.setup.progress));
-					ui.add_sized(egui::vec2(width, 18.0), bar);
-				}
-			});
+
 		});
 
 		egui::CentralPanel::default().show(ctx, |ui| {

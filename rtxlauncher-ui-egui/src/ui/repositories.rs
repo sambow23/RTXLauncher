@@ -4,6 +4,7 @@ use rtxlauncher_core::{GitHubRelease, JobProgress, fetch_releases, GitHubRateLim
 pub struct RepositoriesState {
 	pub is_running: bool,
 	pub current_job: Option<std::sync::mpsc::Receiver<JobProgress>>,
+	pub progress: u8,
 	pub remix_source_idx: usize,
 	pub remix_releases: Vec<GitHubRelease>,
 	pub remix_release_idx: usize,
@@ -22,6 +23,7 @@ impl Default for RepositoriesState {
 		Self {
 			is_running: false,
 			current_job: None,
+			progress: 0,
 			remix_source_idx: 0,
 			remix_releases: Vec::new(),
 			remix_release_idx: 0,
@@ -43,6 +45,7 @@ impl RepositoriesState {
 		let mut finished = false;
 		if let Some(rx) = self.current_job.take() {
 			while let Ok(p) = rx.try_recv() {
+				self.progress = p.percent;
 				// Append to global log
 				if !global_log.is_empty() { global_log.push('\n'); }
 				global_log.push_str(&p.message);
