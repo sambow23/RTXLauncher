@@ -1,5 +1,7 @@
 use eframe::{egui, App};
-use rtxlauncher_core::{is_elevated, SettingsStore, JobProgress, AppSettings, detect_gmod_install_folder, launch_game, GitHubRelease};
+use rtxlauncher_core::{SettingsStore, JobProgress, AppSettings, detect_gmod_install_folder, launch_game, GitHubRelease};
+#[cfg(windows)]
+use rtxlauncher_core::is_elevated;
 
 pub const DEFAULT_IGNORE_PATTERNS: &str = r#"
 # 32bit Bridge
@@ -153,12 +155,25 @@ impl App for LauncherApp {
 				ui.add(egui::Image::new(image).fit_to_exact_size(egui::vec2(208.0, 208.0)));
 			});
 			ui.separator();
-			ui.selectable_value(&mut self.selected, Tab::Install, "Install");
-			ui.selectable_value(&mut self.selected, Tab::Mount, "Mounting");
-			ui.selectable_value(&mut self.selected, Tab::Repositories, "Repositories");
-			ui.selectable_value(&mut self.selected, Tab::Settings, "Settings");
-			ui.selectable_value(&mut self.selected, Tab::Logs, "Logs");
-			ui.selectable_value(&mut self.selected, Tab::About, "About");
+			// Larger navigation tabs with custom font size
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::Install, egui::RichText::new("Install").size(16.0))
+			});
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::Mount, egui::RichText::new("Mounting").size(16.0))
+			});
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::Repositories, egui::RichText::new("Repositories").size(16.0))
+			});
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::Settings, egui::RichText::new("Settings").size(16.0))
+			});
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::Logs, egui::RichText::new("Logs").size(16.0))
+			});
+			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
+				ui.selectable_value(&mut self.selected, Tab::About, egui::RichText::new("About").size(16.0))
+			});
 			ui.add_space(8.0);
 			ui.separator();
 			#[cfg(windows)]
@@ -172,7 +187,12 @@ impl App for LauncherApp {
 			let remaining = ui.available_size();
 			ui.allocate_ui_with_layout(remaining, egui::Layout::bottom_up(egui::Align::Center), |ui| {
 				let any_running = self.install.is_running || self.repositories.is_running || self.mount.is_running;
-				if ui.add_enabled(!any_running, egui::Button::new("Launch Game")).clicked() {
+				// Larger, rounded Launch Game button with custom font size
+				if ui.add_enabled_ui(!any_running, |ui| {
+					ui.add_sized([ui.available_width() - 8.0, 48.0], 
+						egui::Button::new(egui::RichText::new("Launch Game").size(18.0)).rounding(egui::Rounding::same(10.0))
+					)
+				}).inner.clicked() {
 					if let Ok(exec_dir) = std::env::current_exe().and_then(|p| p.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))) {
 						let root_exe = exec_dir.join("gmod.exe");
 						let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
