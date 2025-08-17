@@ -37,7 +37,7 @@ bin/win64/usd_ms.dll
 "#;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Tab { Install, Mount, Repositories, Settings, About, Logs }
+pub enum Tab { Setup, Mount, Repositories, Settings, About, Logs }
 
 pub struct Toast { pub msg: String, pub color: egui::Color32, pub until: std::time::Instant }
 
@@ -75,7 +75,7 @@ pub struct LauncherApp {
 	pub reapply_fixes: bool,
 	pub reapply_patches: bool,
 	// Sub-states for tabs
-	pub install: crate::ui::install::InstallState,
+	pub setup: crate::ui::setup::SetupState,
 	pub mount: crate::ui::mount::MountState,
 	pub repositories: crate::ui::repositories::RepositoriesState,
 }
@@ -90,6 +90,13 @@ impl Default for LauncherApp {
 				let _ = store.save(&settings);
 			}
 		}
+		
+		// Determine the initial tab based on setup completion status
+		let initial_tab = match settings.setup_completed {
+			Some(true) => Tab::Settings,  // Setup completed successfully
+			Some(false) => Tab::Repositories,  // Setup was skipped, go to repositories
+			None => Tab::Setup,  // First time, show setup
+		};
 		Self {
 			log: String::new(),
 			progress: 0,
@@ -97,7 +104,7 @@ impl Default for LauncherApp {
 			current_job: None,
 			settings_store: store,
 			settings,
-			selected: Tab::Install,
+			selected: initial_tab,
 			is_running: false,
 			show_error_modal: None,
 			toasts: Vec::new(),
@@ -121,7 +128,7 @@ impl Default for LauncherApp {
 			show_reapply_dialog: false,
 			reapply_fixes: true,
 			reapply_patches: true,
-			install: Default::default(),
+			setup: Default::default(),
 			mount: Default::default(),
 			repositories: Default::default(),
 		}
@@ -157,7 +164,7 @@ impl App for LauncherApp {
 			ui.separator();
 			// Larger navigation tabs with custom font size
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
-				ui.selectable_value(&mut self.selected, Tab::Install, egui::RichText::new("Install").size(16.0))
+				ui.selectable_value(&mut self.selected, Tab::Setup, egui::RichText::new("Setup").size(16.0))
 			});
 			ui.add_sized([ui.available_width(), 20.0], |ui: &mut egui::Ui| {
 				ui.selectable_value(&mut self.selected, Tab::Mount, egui::RichText::new("Mounting").size(16.0))
@@ -186,26 +193,46 @@ impl App for LauncherApp {
 			ui.add_space(8.0);
 			let remaining = ui.available_size();
 			ui.allocate_ui_with_layout(remaining, egui::Layout::bottom_up(egui::Align::Center), |ui| {
-				let any_running = self.install.is_running || self.repositories.is_running || self.mount.is_running;
+				let any_running = self.setup.is_running || self.repositories.is_running || self.mount.is_running;
+				
+				// Check if we should show the Launch Game button
+				let show_launch_button = match self.settings.setup_completed {
+					Some(true) => true,  // Setup completed successfully
+					Some(false) => true, // Setup was skipped, assume they have installation
+					None => {
+						// First time - check if there's an existing RTX installation
+						if let Ok(exec_dir) = std::env::current_exe().map(|p| p.parent().unwrap().to_path_buf()) {
+							let root_exe = exec_dir.join("gmod.exe");
+							let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
+							let hl2_exe = exec_dir.join("hl2.exe");
+							root_exe.exists() || win64_exe.exists() || hl2_exe.exists()
+						} else {
+							false
+						}
+					}
+				};
+				
 				// Larger, rounded Launch Game button with custom font size
-				if ui.add_enabled_ui(!any_running, |ui| {
-					ui.add_sized([ui.available_width() - 8.0, 48.0], 
-						egui::Button::new(egui::RichText::new("Launch Game").size(18.0)).rounding(egui::Rounding::same(10.0))
-					)
-				}).inner.clicked() {
+				if show_launch_button {
+					if ui.add_enabled_ui(!any_running, |ui| {
+						ui.add_sized([ui.available_width() - 8.0, 48.0], 
+							egui::Button::new(egui::RichText::new("Launch Game").size(18.0)).rounding(egui::Rounding::same(10.0))
+						)
+					}).inner.clicked() {
 					if let Ok(exec_dir) = std::env::current_exe().and_then(|p| p.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))) {
 						let root_exe = exec_dir.join("gmod.exe");
 						let win64_exe = exec_dir.join("bin").join("win64").join("gmod.exe");
 						let exe = if win64_exe.exists() { win64_exe } else if root_exe.exists() { root_exe } else { exec_dir.join("hl2.exe") };
 						if launch_game(exe, &self.settings).is_ok() { self.add_toast("Launched game", egui::Color32::LIGHT_GREEN); } else { self.add_toast("Failed to launch game — check Proton path/Steam root in Settings", egui::Color32::RED); }
 					}
+					}
 				}
 				ui.add_space(6.0);
-				// Show install progress if available
-				if self.install.is_running {
-					let pct = self.install.progress as f32 / 100.0;
+				// Show setup progress if available
+				if self.setup.is_running {
+					let pct = self.setup.progress as f32 / 100.0;
 					let width = ui.available_width().min(220.0);
-					let bar = egui::ProgressBar::new(pct).text(format!("Install: {}%", self.install.progress));
+					let bar = egui::ProgressBar::new(pct).text(format!("Setup: {}%", self.setup.progress));
 					ui.add_sized(egui::vec2(width, 18.0), bar);
 				}
 			});
@@ -213,7 +240,7 @@ impl App for LauncherApp {
 
 		egui::CentralPanel::default().show(ctx, |ui| {
 			match self.selected {
-				Tab::Install => { crate::ui::install::render_install_tab(self, ui); }
+				Tab::Setup => { crate::ui::setup::render_setup_tab(self, ui); }
 				Tab::Mount => { crate::ui::mount::render_mount_tab(self, ui); }
 				Tab::Repositories => { crate::ui::repositories::render_repositories_tab(self, ui); }
 				Tab::Settings => { crate::ui::settings::render_settings_tab(self, ui, ctx); }

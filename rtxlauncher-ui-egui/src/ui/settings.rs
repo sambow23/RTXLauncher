@@ -13,13 +13,13 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
 	ui.horizontal(|ui| {
 		ui.label("Original Garry's Mod path:");
 		ui.text_edit_singleline(&mut path_display);
-		if ui.add_enabled(!app.install.is_running, egui::Button::new("Browse")).clicked() {
+		        if ui.add_enabled(!app.setup.is_running, egui::Button::new("Browse")).clicked() {
 			if let Some(p) = rfd::FileDialog::new().set_directory("C:/").pick_folder() {
 				app.settings.manually_specified_install_path = Some(p.display().to_string());
 				let _ = app.settings_store.save(&app.settings);
 			}
 		}
-		if ui.add_enabled(!app.install.is_running, egui::Button::new("Auto-detect (Steam)")).clicked() {
+		        if ui.add_enabled(!app.setup.is_running, egui::Button::new("Auto-detect (Steam)")).clicked() {
 			if let Some(p) = detect_gmod_install_folder() {
 				app.settings.manually_specified_install_path = Some(p.display().to_string());
 				let _ = app.settings_store.save(&app.settings);
@@ -44,7 +44,7 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
     let col = if pat_ok { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,0,0) };
     ui.colored_label(col, if pat_ok { "PAT saved" } else { "No PAT" });
 	ui.separator();
-	ui.label("Launch options");
+	ui.heading("Launch options");
 	// Resolution dropdown
 	let mut resolutions: Vec<(u32, u32)> = vec![(1280,720),(1280,800),(1366,768),(1440,900),(1600,900),(1680,1050),(1920,1080),(1920,1200),(2560,1080),(2560,1440),(2560,1600),(3440,1440),(3840,2160)];
 	let win_size = ctx.input(|i| i.screen_rect.size());
@@ -118,7 +118,7 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
 	#[cfg(unix)]
 	{
 		ui.separator();
-		ui.label("Linux Settings");
+		ui.heading("Linux Settings");
 		
 		// Proton path setting
 		ui.horizontal(|ui| {

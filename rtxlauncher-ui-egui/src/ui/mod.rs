@@ -1,4 +1,4 @@
-pub mod install;
+pub mod setup;
 pub mod mount;
 pub mod repositories;
 pub mod settings;

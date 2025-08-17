@@ -24,6 +24,8 @@ pub struct AppSettings {
     pub installed_remix_version: Option<String>,
     pub installed_fixes_version: Option<String>,
     pub installed_patches_commit: Option<String>,
+    // Setup completion tracking
+    pub setup_completed: Option<bool>,
 }
 
 impl Default for AppSettings {
@@ -47,6 +49,7 @@ impl Default for AppSettings {
             installed_remix_version: None,
             installed_fixes_version: None,
             installed_patches_commit: None,
+            setup_completed: None,
         }
     }
 }
