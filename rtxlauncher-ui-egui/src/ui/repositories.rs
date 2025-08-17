@@ -4,7 +4,6 @@ use rtxlauncher_core::{GitHubRelease, JobProgress, fetch_releases, GitHubRateLim
 pub struct RepositoriesState {
 	pub is_running: bool,
 	pub current_job: Option<std::sync::mpsc::Receiver<JobProgress>>,
-	pub log: String,
 	pub remix_source_idx: usize,
 	pub remix_releases: Vec<GitHubRelease>,
 	pub remix_release_idx: usize,
@@ -23,7 +22,6 @@ impl Default for RepositoriesState {
 		Self {
 			is_running: false,
 			current_job: None,
-			log: String::new(),
 			remix_source_idx: 0,
 			remix_releases: Vec::new(),
 			remix_release_idx: 0,
@@ -40,38 +38,42 @@ impl Default for RepositoriesState {
 }
 
 impl RepositoriesState {
-	pub fn append_log(&mut self, msg: &str) { if !self.log.is_empty() { self.log.push('\n'); } self.log.push_str(msg); }
-	pub fn poll_job(&mut self) {
-		if self.current_job.is_none() { return; }
+	pub fn poll_job(&mut self, global_log: &mut String) -> bool {
+		if self.current_job.is_none() { return false; }
 		let mut finished = false;
 		if let Some(rx) = self.current_job.take() {
 			while let Ok(p) = rx.try_recv() {
-				self.append_log(&p.message);
+				// Append to global log
+				if !global_log.is_empty() { global_log.push('\n'); }
+				global_log.push_str(&p.message);
 				if p.percent >= 100 { self.is_running = false; finished = true; }
 			}
 			if !finished { self.current_job = Some(rx); }
 		}
+		finished
 	}
 }
 
 pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui) {
 	// Poll and kick off fetches without holding a long borrow
-	{
+	let job_finished = {
 		let st = &mut app.repositories;
-		st.poll_job();
+		let finished = st.poll_job(&mut app.log);
 		if !st.remix_loading && st.remix_releases.is_empty() { start_fetch_releases(true, st); }
 		if !st.fixes_loading && st.fixes_releases.is_empty() { start_fetch_releases(false, st); }
+		finished
+	};
+	if job_finished {
+		// Reload settings when a job finishes to update version info
+		if let Ok(new_settings) = app.settings_store.load() {
+			app.settings = new_settings;
+		}
 	}
 
 	ui.heading("Repositories");
 	ui.separator();
 
-	ui.columns(2, |cols| {
-		// Left column: sections in their own scroll area
-		{
-			let ui = &mut cols[0];
-			egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 8.0, top: 0.0, bottom: 0.0 }).show(ui, |ui| {
-				egui::ScrollArea::vertical().id_salt("repos-sections").auto_shrink([false, false]).show(ui, |ui| {
+	egui::ScrollArea::vertical().id_salt("repos-sections").auto_shrink([false, false]).show(ui, |ui| {
 					// Base Game Updates (collapsible)
 					{
 						let st = &mut app.repositories;
@@ -116,11 +118,18 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 									let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
 									st.current_job = Some(rx);
 									st.is_running = true;
+									let rel_name = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+									let settings_store = app.settings_store.clone();
+									let mut settings = app.settings.clone();
 									std::thread::spawn(move || {
 										let rt = tokio::runtime::Runtime::new().unwrap();
 										rt.block_on(async move {
 											let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
-											let _ = install_remix_from_release(&rel, &base, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+											let result = install_remix_from_release(&rel, &base, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await;
+											if result.is_ok() {
+												settings.installed_remix_version = Some(rel_name);
+												let _ = settings_store.save(&settings);
+											}
 										});
 									});
 								}
@@ -142,7 +151,7 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 									}
 								});
 								if let Some(body) = &rel.body {
-									egui::ScrollArea::vertical().id_salt("remix-md").max_height(260.0).show(ui, |ui| { render_simple_markdown(ui, body); });
+									egui::ScrollArea::vertical().id_salt("remix-md").max_height(200.0).auto_shrink([false, true]).show(ui, |ui| { render_simple_markdown(ui, body); });
 								}
 							}
 						});
@@ -180,7 +189,20 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 									let (tx, rx) = std::sync::mpsc::channel::<JobProgress>();
 									st.current_job = Some(rx);
 									st.is_running = true;
-									std::thread::spawn(move || { let rt = tokio::runtime::Runtime::new().unwrap(); rt.block_on(async move { let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default(); let _ = install_fixes_from_release(&rel, &base, Some(crate::app::DEFAULT_IGNORE_PATTERNS), |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await; }); });
+									let rel_name = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
+									let settings_store = app.settings_store.clone();
+									let mut settings = app.settings.clone();
+									std::thread::spawn(move || { 
+										let rt = tokio::runtime::Runtime::new().unwrap(); 
+										rt.block_on(async move { 
+											let base = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default(); 
+											let result = install_fixes_from_release(&rel, &base, Some(crate::app::DEFAULT_IGNORE_PATTERNS), |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await; 
+											if result.is_ok() {
+												settings.installed_fixes_version = Some(rel_name);
+												let _ = settings_store.save(&settings);
+											}
+										}); 
+									});
 								}
 							});
 							// details panel
@@ -188,7 +210,7 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 								ui.separator();
 								let name = rel.name.clone().unwrap_or_else(|| rel.tag_name.clone().unwrap_or_default());
 								ui.horizontal(|ui| { ui.label(format!("Selected: {}", name)); let installed = app.settings.installed_fixes_version.clone().unwrap_or_default(); if !installed.is_empty() { let up_to_date = installed == name; let col = if up_to_date { egui::Color32::from_rgb(0,200,0) } else { egui::Color32::from_rgb(200,140,0) }; ui.colored_label(col, if up_to_date { "Up to date" } else { "Update available" }); ui.label(format!("Installed: {}", installed)); } });
-								if let Some(body) = &rel.body { egui::ScrollArea::vertical().id_salt("fixes-md").max_height(260.0).show(ui, |ui| { render_simple_markdown(ui, body); }); }
+								if let Some(body) = &rel.body { egui::ScrollArea::vertical().id_salt("fixes-md").max_height(200.0).auto_shrink([false, true]).show(ui, |ui| { render_simple_markdown(ui, body); }); }
 							}
 						});
 					}
@@ -205,30 +227,30 @@ pub fn render_repositories_tab(app: &mut crate::app::LauncherApp, ui: &mut egui:
 								("Xenthio/SourceRTXTweaks", "Xenthio", "SourceRTXTweaks"),
 							];
 							ui.horizontal(|ui| { ui.label("Source"); egui::ComboBox::from_id_salt("patch-source").selected_text(patch_sources[st.patch_source_idx].0).show_ui(ui, |ui| { for (i, (label, _, _)) in patch_sources.iter().enumerate() { if ui.selectable_label(st.patch_source_idx == i, *label).clicked() { st.patch_source_idx = i; } } }); });
-							ui.horizontal(|ui| { ui.label("Action"); if ui.add_enabled(!st.is_running, egui::Button::new("Apply Patches")).clicked() { let (owner, repo) = { let s = patch_sources[st.patch_source_idx]; (s.1.to_string(), s.2.to_string()) }; let (tx, rx) = std::sync::mpsc::channel::<JobProgress>(); st.current_job = Some(rx); st.is_running = true; let install_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default(); std::thread::spawn(move || { let rt = tokio::runtime::Runtime::new().unwrap(); rt.block_on(async move { let _ = apply_patches_from_repo(&owner, &repo, "applypatch.py", &install_dir, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await; }); }); } });
+							ui.horizontal(|ui| { ui.label("Action"); if ui.add_enabled(!st.is_running, egui::Button::new("Apply Patches")).clicked() { let (owner, repo) = { let s = patch_sources[st.patch_source_idx]; (s.1.to_string(), s.2.to_string()) }; let (tx, rx) = std::sync::mpsc::channel::<JobProgress>(); st.current_job = Some(rx); st.is_running = true; let install_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default(); let patch_info = format!("{}/{}", &owner, &repo); let settings_store = app.settings_store.clone(); let mut settings = app.settings.clone(); std::thread::spawn(move || { let rt = tokio::runtime::Runtime::new().unwrap(); rt.block_on(async move { let result = apply_patches_from_repo(&owner, &repo, "applypatch.py", &install_dir, |m,p| { let _ = tx.send(JobProgress { message: m.to_string(), percent: p }); }).await; if result.is_ok() { settings.installed_patches_commit = Some(patch_info); let _ = settings_store.save(&settings); } }); }); } });
 						});
 					}
-				});
-			});
-		}
-
-		// Right column: logs (always visible)
-		{
-			let ui = &mut cols[1];
-			ui.add_space(8.0);
-			let st = &mut app.repositories;
-			ui.heading("Logs");
-			ui.horizontal(|ui| {
-				if ui.small_button("Copy").clicked() { ui.output_mut(|o| o.copied_text = st.log.clone()); }
-				if ui.small_button("Clear").clicked() { st.log.clear(); }
-			});
-			egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false,false]).show(ui, |ui| {
-				ui.monospace(&st.log);
-			});
-			if let Some(rx) = st.remix_rx.take() { if let Ok(list) = rx.try_recv() { st.remix_releases = list; st.remix_release_idx = 0; st.remix_loading = false; } else { st.remix_rx = Some(rx); } }
-			if let Some(rx) = st.fixes_rx.take() { if let Ok(list) = rx.try_recv() { st.fixes_releases = list; st.fixes_release_idx = 0; st.fixes_loading = false; } else { st.fixes_rx = Some(rx); } }
-		}
 	});
+	
+	// Handle async release fetching outside the UI
+	if let Some(rx) = app.repositories.remix_rx.take() { 
+		if let Ok(list) = rx.try_recv() { 
+			app.repositories.remix_releases = list; 
+			app.repositories.remix_release_idx = 0; 
+			app.repositories.remix_loading = false; 
+		} else { 
+			app.repositories.remix_rx = Some(rx); 
+		} 
+	}
+	if let Some(rx) = app.repositories.fixes_rx.take() { 
+		if let Ok(list) = rx.try_recv() { 
+			app.repositories.fixes_releases = list; 
+			app.repositories.fixes_release_idx = 0; 
+			app.repositories.fixes_loading = false; 
+		} else { 
+			app.repositories.fixes_rx = Some(rx); 
+		} 
+	}
 }
 
 fn start_fetch_releases(remix: bool, st: &mut RepositoriesState) {

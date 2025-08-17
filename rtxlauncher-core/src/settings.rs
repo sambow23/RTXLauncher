@@ -51,6 +51,7 @@ impl Default for AppSettings {
     }
 }
 
+#[derive(Clone)]
 pub struct SettingsStore {
     path: PathBuf,
 }

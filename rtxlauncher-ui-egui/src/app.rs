@@ -35,7 +35,7 @@ bin/win64/usd_ms.dll
 "#;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Tab { Install, Mount, Repositories, Settings, About }
+pub enum Tab { Install, Mount, Repositories, Settings, About, Logs }
 
 pub struct Toast { pub msg: String, pub color: egui::Color32, pub until: std::time::Instant }
 
@@ -157,6 +157,7 @@ impl App for LauncherApp {
 			ui.selectable_value(&mut self.selected, Tab::Mount, "Mounting");
 			ui.selectable_value(&mut self.selected, Tab::Repositories, "Repositories");
 			ui.selectable_value(&mut self.selected, Tab::Settings, "Settings");
+			ui.selectable_value(&mut self.selected, Tab::Logs, "Logs");
 			ui.selectable_value(&mut self.selected, Tab::About, "About");
 			ui.add_space(8.0);
 			ui.separator();
@@ -196,6 +197,7 @@ impl App for LauncherApp {
 				Tab::Mount => { crate::ui::mount::render_mount_tab(self, ui); }
 				Tab::Repositories => { crate::ui::repositories::render_repositories_tab(self, ui); }
 				Tab::Settings => { crate::ui::settings::render_settings_tab(self, ui, ctx); }
+				Tab::Logs => { crate::ui::logs::render_logs_tab(self, ui); }
 				Tab::About => { crate::ui::about::render_about_tab(self, ui); }
 			}
 		});
@@ -207,6 +209,13 @@ impl App for LauncherApp {
 }
 
 impl LauncherApp {
+	pub fn append_global_log(&mut self, msg: &str) {
+		if !self.log.is_empty() {
+			self.log.push('\n');
+		}
+		self.log.push_str(msg);
+	}
+
 	pub fn prepare_update_dialog(&mut self) {
 		self.update_folder_options.clear();
 		self.update_folder_selected.clear();
