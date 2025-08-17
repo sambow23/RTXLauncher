@@ -1,5 +1,7 @@
 use eframe::egui;
-use rtxlauncher_core::{detect_gmod_install_folder, is_elevated};
+use rtxlauncher_core::detect_gmod_install_folder;
+#[cfg(windows)]
+use rtxlauncher_core::is_elevated;
 
 pub struct SettingsState {}
 
@@ -110,6 +112,82 @@ pub fn render_settings_tab(app: &mut crate::app::LauncherApp, ui: &mut egui::Ui,
 					}
 				}
 			}
+		}
+	}
+
+	#[cfg(unix)]
+	{
+		ui.separator();
+		ui.label("Linux Settings");
+		
+		// Proton path setting
+		ui.horizontal(|ui| {
+			ui.label("Proton path (optional):");
+			let mut proton_path = app.settings.linux_proton_path.clone().unwrap_or_default();
+			if ui.text_edit_singleline(&mut proton_path).changed() {
+				app.settings.linux_proton_path = if proton_path.trim().is_empty() { None } else { Some(proton_path) };
+				let _ = app.settings_store.save(&app.settings);
+			}
+			if ui.button("Browse").clicked() {
+				if let Some(p) = rfd::FileDialog::new().set_title("Select Proton executable").pick_file() {
+					app.settings.linux_proton_path = Some(p.display().to_string());
+					let _ = app.settings_store.save(&app.settings);
+				}
+			}
+			if ui.button("Auto-detect").clicked() {
+				// Try to find Proton installations
+				let proton_builds = rtxlauncher_core::list_proton_builds(&app.settings);
+				if let Some(first_build) = proton_builds.first() {
+					app.settings.linux_proton_path = Some(first_build.1.clone());
+					app.settings.linux_selected_proton_label = Some(first_build.0.clone());
+					let _ = app.settings_store.save(&app.settings);
+				}
+			}
+		});
+		
+		// Steam root override
+		ui.horizontal(|ui| {
+			ui.label("Steam root override (optional):");
+			let mut steam_root = app.settings.linux_steam_root_override.clone().unwrap_or_default();
+			if ui.text_edit_singleline(&mut steam_root).changed() {
+				app.settings.linux_steam_root_override = if steam_root.trim().is_empty() { None } else { Some(steam_root) };
+				let _ = app.settings_store.save(&app.settings);
+			}
+			if ui.button("Browse").clicked() {
+				if let Some(p) = rfd::FileDialog::new().set_title("Select Steam root directory").pick_folder() {
+					app.settings.linux_steam_root_override = Some(p.display().to_string());
+					let _ = app.settings_store.save(&app.settings);
+				}
+			}
+		});
+		
+		// Proton logging
+		if ui.checkbox(&mut app.settings.linux_enable_proton_log, "Enable Proton logging").changed() {
+			let _ = app.settings_store.save(&app.settings);
+		}
+		
+		// Proton build selection (if available)
+		let proton_builds = rtxlauncher_core::list_proton_builds(&app.settings);
+		if !proton_builds.is_empty() {
+			ui.horizontal(|ui| {
+				ui.label("Proton build:");
+				let current_label = app.settings.linux_selected_proton_label.clone().unwrap_or_else(|| "Auto".to_string());
+				egui::ComboBox::from_id_salt("proton-build").selected_text(current_label).show_ui(ui, |ui| {
+					if ui.selectable_label(app.settings.linux_selected_proton_label.is_none(), "Auto").clicked() {
+						app.settings.linux_selected_proton_label = None;
+						app.settings.linux_proton_path = None;
+						let _ = app.settings_store.save(&app.settings);
+					}
+					for (label, path) in &proton_builds {
+						let is_selected = app.settings.linux_selected_proton_label.as_ref() == Some(label);
+						if ui.selectable_label(is_selected, label).clicked() {
+							app.settings.linux_selected_proton_label = Some(label.clone());
+							app.settings.linux_proton_path = Some(path.clone());
+							let _ = app.settings_store.save(&app.settings);
+						}
+					}
+				});
+			});
 		}
 	}
 }

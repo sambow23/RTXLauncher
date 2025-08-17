@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
 		.with_resizable(true);
 	
 	eframe::run_native(
-		"RTXLauncher (Rust)",
+		"RTXLauncher-rs",
 		native_options,
         Box::new(|_cc| Ok(Box::new(app::LauncherApp::default()))),
 	).unwrap();
