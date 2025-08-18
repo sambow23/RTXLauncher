@@ -13,7 +13,8 @@ async fn main() -> anyhow::Result<()> {
 		.viewport
 		.with_inner_size([874.0, 500.0])
 		.with_min_inner_size([874.0, 500.0])
-		.with_resizable(true);
+		.with_resizable(false)
+		.with_maximize_button(false);
 	
 	eframe::run_native(
 		"RTXLauncher-rs",
