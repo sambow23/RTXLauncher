@@ -135,9 +135,19 @@ impl Default for LauncherApp {
 	}
 }
 
+// Append a single line to a log, skipping if it is identical to the last line
+pub fn append_line_dedup(log: &mut String, msg: &str) {
+	let incoming = msg.trim_end_matches('\n');
+	if incoming.is_empty() { return; }
+	let last = log.rsplit('\n').next().unwrap_or("");
+	if last == incoming { return; }
+	if !log.is_empty() { log.push('\n'); }
+	log.push_str(incoming);
+}
+
 impl LauncherApp {
 	#[allow(dead_code)]
-	pub fn append_log(&mut self, msg: &str) { if !self.log.is_empty() { self.log.push('\n'); } self.log.push_str(msg); }
+	pub fn append_log(&mut self, msg: &str) { append_line_dedup(&mut self.log, msg); }
 	pub fn add_toast(&mut self, msg: &str, color: egui::Color32) { self.toasts.push(Toast { msg: msg.to_string(), color, until: std::time::Instant::now() + std::time::Duration::from_secs(4) }); }
 	fn draw_toasts(&mut self, ctx: &egui::Context) {
 		let now = std::time::Instant::now();
@@ -202,7 +212,9 @@ impl App for LauncherApp {
 					}
 					
 					// Progress bar anchored to the right with proper padding
-					if any_running {
+					// Hide the global progress bar during Quick Install (Setup tab)
+					let hide_global_progress = self.selected == Tab::Setup && self.setup.is_running;
+					if any_running && !hide_global_progress {
 						let (progress_pct, progress_text) = if self.setup.is_running {
 							(self.setup.progress as f32 / 100.0, format!("{}%", self.setup.progress))
 						} else if self.repositories.is_running {
@@ -287,12 +299,7 @@ impl App for LauncherApp {
 }
 
 impl LauncherApp {
-	pub fn append_global_log(&mut self, msg: &str) {
-		if !self.log.is_empty() {
-			self.log.push('\n');
-		}
-		self.log.push_str(msg);
-	}
+	pub fn append_global_log(&mut self, msg: &str) { append_line_dedup(&mut self.log, msg); }
 
 	pub fn prepare_update_dialog(&mut self) {
 		self.update_folder_options.clear();

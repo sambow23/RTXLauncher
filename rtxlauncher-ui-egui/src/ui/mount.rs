@@ -18,9 +18,8 @@ impl MountState {
 	pub fn poll_job(&mut self, global_log: &mut String) {
 		if let Some(rx) = self.current_job.take() {
 			while let Ok(p) = rx.try_recv() {
-				// Append to global log
-				if !global_log.is_empty() { global_log.push('\n'); }
-				global_log.push_str(&p.message);
+				// Append to global log (deduplicated)
+				crate::app::append_line_dedup(global_log, &p.message);
 				if p.percent >= 100 { self.is_running = false; }
 			}
 			if self.is_running { self.current_job = Some(rx); }
