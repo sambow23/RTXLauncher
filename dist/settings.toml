@@ -1,0 +1,9 @@
+manually_specified_install_path = "/home/cr/.local/share/Steam/steamapps/common/GarrysMod"
+width = 1920
+height = 1080
+console_enabled = true
+load_workshop_addons = true
+disable_chromium = false
+developer_mode = false
+tools_mode = false
+linux_enable_proton_log = false

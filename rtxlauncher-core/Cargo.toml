@@ -12,7 +12,7 @@ toml = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs"] }
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
 futures-util = "0.3"
-zip = "0.6"
+zip = { version = "0.6", default-features = false, features = ["deflate", "time"] }
 walkdir = "2"
 fs_extra = "1"
 filetime = "0.2"
