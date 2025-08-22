@@ -28,9 +28,8 @@ impl SetupState {
 		if let Some(rx) = self.current_job.take() {
 			while let Ok(p) = rx.try_recv() {
 				self.progress = p.percent;
-				// Append to global log
-				if !global_log.is_empty() { global_log.push('\n'); }
-				global_log.push_str(&p.message);
+				// Append to global log (deduplicated)
+				crate::app::append_line_dedup(global_log, &p.message);
 				if p.percent >= 100 { 
 					self.is_running = false; 
 					self.setup_completed = true;
